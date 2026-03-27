@@ -1,0 +1,28 @@
+# Build
+.build/
+Build/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# macOS
+.DS_Store
+*.swp
+*~
+
+# Xcode
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+*.moved-aside
+xcuserdata/
+
+# SPM
+.swiftpm/
+Package.resolved
+
+# Credentials (should never be committed)
+*.credentials
+*.keychain
+.env
