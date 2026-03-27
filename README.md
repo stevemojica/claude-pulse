@@ -6,6 +6,10 @@ A native macOS menubar app that monitors your Claude usage limits in real time. 
 ![Swift 5.10](https://img.shields.io/badge/Swift-5.10-orange)
 ![License: MIT](https://img.shields.io/badge/License-MIT-green)
 
+<p align="center">
+  <img src="screenshot.png" alt="Claude Pulse Dashboard" width="340">
+</p>
+
 ## Why This Exists
 
 Every existing Claude usage tool lives inside the terminal. Claude Pulse breaks out into a native macOS citizen — a menubar app with visual progress bars, predictive burn rate, budget alerts, and a live countdown clock. It works whether Claude Code is running or not.
