@@ -5,6 +5,9 @@ import PackageDescription
 let package = Package(
     name: "ClaudePulse",
     platforms: [.macOS(.v14)],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.0.0"),
+    ],
     targets: [
         .target(
             name: "ClaudePulseCore",
@@ -13,8 +16,14 @@ let package = Package(
         ),
         .executableTarget(
             name: "ClaudePulse",
-            dependencies: ["ClaudePulseCore"],
-            path: "Sources/ClaudePulse"
+            dependencies: [
+                "ClaudePulseCore",
+                .product(name: "Sparkle", package: "Sparkle"),
+            ],
+            path: "Sources/ClaudePulse",
+            linkerSettings: [
+                .linkedFramework("AVFoundation"),
+            ]
         ),
         .executableTarget(
             name: "ClaudePulseCLI",
