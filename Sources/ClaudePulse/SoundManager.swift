@@ -47,7 +47,8 @@ final class SoundManager {
             playTone(frequency: 880, duration: 0.08, volume: 0.3)
         case SessionManager.SessionEvent.permissionRequested.rawValue:
             playTone(frequency: 660, duration: 0.15, volume: 0.5)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak self] in
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 180_000_000) // 0.18s
                 self?.playTone(frequency: 880, duration: 0.12, volume: 0.4)
             }
         case SessionManager.SessionEvent.questionAsked.rawValue:

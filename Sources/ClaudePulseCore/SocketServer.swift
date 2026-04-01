@@ -101,8 +101,9 @@ public final class SocketServer: @unchecked Sendable {
         listenSource?.setEventHandler { [weak self] in
             self?.acceptConnection()
         }
-        listenSource?.setCancelHandler { [weak self] in
-            if let fd = self?.listenFd, fd >= 0 { close(fd) }
+        let fd = listenFd
+        listenSource?.setCancelHandler {
+            if fd >= 0 { close(fd) }
         }
         listenSource?.resume()
 
