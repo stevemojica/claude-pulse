@@ -364,6 +364,7 @@ struct SessionCardView: View {
                     .padding(.horizontal, 5)
                     .padding(.vertical, 2)
                     .background(statusColor.opacity(0.12), in: Capsule())
+                    .accessibilityLabel("Status: \(session.status.displayLabel)")
 
                 // Jump to terminal
                 if session.terminalInfo != nil {
@@ -373,15 +374,37 @@ struct SessionCardView: View {
                     }
                     .buttonStyle(.plain)
                     .help("Jump to terminal")
+                    .accessibilityLabel("Jump to terminal for this session")
                 }
+
+                // Dismiss completed/errored sessions
+                if session.status == .completed || session.status == .errored {
+                    Button(action: { sessionManager.removeSession(id: session.id) }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 8))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Dismiss session")
+                    .accessibilityLabel("Dismiss this session")
+                }
+            }
+
+            // Working directory (prominent for multi-project disambiguation)
+            if let dir = session.workingDirectory {
+                Text(shortenPath(dir))
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
 
             // Current task
             if let task = session.currentTask {
                 Text(task)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.tertiary)
                     .lineLimit(1)
+                    .truncationMode(.tail)
             }
 
             // Permission prompt
@@ -390,11 +413,14 @@ struct SessionCardView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(prompt.toolName)
                             .font(.system(size: 10, weight: .medium))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                         if let args = prompt.arguments {
                             Text(args)
                                 .font(.system(size: 9, design: .monospaced))
                                 .foregroundStyle(.secondary)
                                 .lineLimit(2)
+                                .truncationMode(.tail)
                         }
                     }
                     Spacer()
@@ -403,12 +429,14 @@ struct SessionCardView: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.mini)
+                    .accessibilityLabel("Deny \(prompt.toolName)")
 
                     Button("Allow") {
                         sessionManager.resolvePermission(id: session.id, allowed: true)
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.mini)
+                    .accessibilityLabel("Allow \(prompt.toolName)")
                 }
                 .padding(6)
                 .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
@@ -424,14 +452,8 @@ struct SessionCardView: View {
                     .background(.yellow.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
             }
 
-            // Time info
+            // Last activity time
             HStack {
-                if let dir = session.workingDirectory {
-                    Text(shortenPath(dir))
-                        .font(.system(size: 9))
-                        .foregroundStyle(.quaternary)
-                        .lineLimit(1)
-                }
                 Spacer()
                 Text(session.lastActivityAt, style: .relative)
                     .font(.system(size: 9))

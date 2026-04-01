@@ -24,6 +24,9 @@ struct SettingsView: View {
                 Text("Poll Interval: \(Int(pollInterval))s")
                     .font(.system(size: 11, weight: .medium))
                 Slider(value: $pollInterval, in: 30...300, step: 30)
+                Text("Min 30s to avoid API rate limiting")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.quaternary)
             }
 
             Divider()
@@ -32,10 +35,10 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Alert Thresholds")
                     .font(.system(size: 11, weight: .medium))
-                Toggle("50%", isOn: $alert50)
-                Toggle("75%", isOn: $alert75)
-                Toggle("90%", isOn: $alert90)
-                Toggle("95%", isOn: $alert95)
+                Toggle("50% — halfway", isOn: $alert50)
+                Toggle("75% — elevated", isOn: $alert75)
+                Toggle("90% — approaching limit", isOn: $alert90)
+                Toggle("95% — near limit", isOn: $alert95)
             }
             .toggleStyle(.switch)
             .controlSize(.small)
@@ -99,12 +102,46 @@ struct SettingsView: View {
                         }
                     }
                     Spacer()
+                    if updateManager.isChecking {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
                     Button("Check for Updates") {
                         updateManager.checkForUpdates()
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .disabled(!updateManager.canCheckForUpdates)
+                    .disabled(updateManager.isChecking)
+                }
+
+                // Result message
+                if updateManager.showResult, let message = updateManager.resultMessage {
+                    HStack(spacing: 6) {
+                        Image(systemName: updateManager.updateAvailable ? "arrow.down.circle.fill" : "checkmark.circle.fill")
+                            .foregroundStyle(updateManager.updateAvailable ? .blue : .green)
+                            .font(.system(size: 11))
+                        Text(message)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        if updateManager.updateAvailable {
+                            Button("Download") {
+                                updateManager.openDownloadPage()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.mini)
+                        }
+                        Button(action: { updateManager.showResult = false }) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 8))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(8)
+                    .background(
+                        (updateManager.updateAvailable ? Color.blue : Color.green).opacity(0.08),
+                        in: RoundedRectangle(cornerRadius: 6)
+                    )
                 }
             }
 
