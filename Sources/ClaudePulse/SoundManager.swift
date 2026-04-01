@@ -85,11 +85,22 @@ final class SoundManager {
         if !playerNode.isPlaying { playerNode.play() }
     }
 
+    /// Call before releasing to clean up resources safely on the main actor.
+    func tearDown() {
+        if let observer = eventObserver {
+            NotificationCenter.default.removeObserver(observer)
+            eventObserver = nil
+        }
+        playerNode?.stop()
+        engine?.stop()
+        engine = nil
+    }
+
     deinit {
+        // Observer removal is safe from any thread
         if let observer = eventObserver {
             NotificationCenter.default.removeObserver(observer)
         }
-        engine?.stop()
     }
 }
 

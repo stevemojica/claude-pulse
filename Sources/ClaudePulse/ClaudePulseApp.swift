@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var socketServer: SocketServer?
     private var logWatcher: LogWatcher?
     private var soundManager: SoundManager?
+    private var updateManager: UpdateManager?
     private var hotKeyMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -45,6 +46,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Initialize sound effects
         soundManager = SoundManager(sessionManager: sessionManager)
+
+        // Initialize auto-updater
+        updateManager = UpdateManager()
+        if let feedURL = URL(string: "https://github.com/stevemojica/claude-pulse/releases/latest/download/appcast.xml") {
+            updateManager?.configure(feedURL: feedURL)
+        }
 
         // Register global hotkey (Cmd+Shift+P)
         registerHotKey()
@@ -76,6 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        soundManager?.tearDown()
         socketServer?.stop()
         logWatcher?.stop()
         if let monitor = hotKeyMonitor {

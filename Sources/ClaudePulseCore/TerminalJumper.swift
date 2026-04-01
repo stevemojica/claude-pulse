@@ -50,15 +50,31 @@ public enum TerminalJumper {
         return app.activate()
     }
 
+    /// Sanitize a string for safe AppleScript embedding — only allow /dev/tty* paths.
+    private static func sanitizeTTY(_ tty: String) -> String? {
+        // Only allow paths that look like valid TTY paths
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "/._-"))
+        guard tty.unicodeScalars.allSatisfy({ allowed.contains($0) }),
+              tty.hasPrefix("/dev/") else {
+            return nil
+        }
+        return tty
+    }
+
     /// Use AppleScript to activate a terminal by TTY path.
     private static func activateByTTY(_ tty: String) {
+        guard let safeTTY = sanitizeTTY(tty) else {
+            print("[ClaudePulse] Rejected invalid TTY path: \(tty)")
+            return
+        }
+
         // Try iTerm2 first
         let iterm = """
             tell application "iTerm2"
                 repeat with w in windows
                     repeat with t in tabs of w
                         repeat with s in sessions of t
-                            if tty of s is "\(tty)" then
+                            if tty of s is "\(safeTTY)" then
                                 select s
                                 select t
                                 set index of w to 1
@@ -76,7 +92,7 @@ public enum TerminalJumper {
             tell application "Terminal"
                 repeat with w in windows
                     repeat with t in tabs of w
-                        if tty of t is "\(tty)" then
+                        if tty of t is "\(safeTTY)" then
                             set selected tab of w to t
                             set index of w to 1
                             activate

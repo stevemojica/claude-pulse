@@ -22,11 +22,12 @@ public final class LogWatcher: @unchecked Sendable {
 
     public func start() {
         DispatchQueue.main.async { [weak self] in
-            self?.timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.scanForChanges()
+            self.timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
                 self?.scanForChanges()
             }
         }
-        scanForChanges()
     }
 
     public func stop() {

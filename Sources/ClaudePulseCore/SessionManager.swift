@@ -19,7 +19,7 @@ public final class SessionManager: ObservableObject {
 
     /// Count of sessions currently doing work.
     public var workingCount: Int {
-        activeSessions.count(where: { $0.status == .working })
+        activeSessions.filter { $0.status == .working }.count
     }
 
     public init() {}

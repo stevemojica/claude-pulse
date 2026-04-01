@@ -18,6 +18,12 @@ AGENT="claude_code"
 # Only proceed if the socket exists
 [ -S "$SOCKET_PATH" ] || exit 0
 
+# Escape a string for safe JSON embedding — handles \, ", newlines, tabs
+json_escape() {
+    printf '%s' "$1" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read())[1:-1], end="")' 2>/dev/null \
+        || printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\t/\\t/g' | tr -d '\n'
+}
+
 send_message() {
     local msg="$1"
     echo "$msg" | socat - UNIX-CONNECT:"$SOCKET_PATH" 2>/dev/null || true
@@ -25,17 +31,18 @@ send_message() {
 
 # Parse the hook event from Claude Code's environment
 EVENT_TYPE="${CLAUDE_HOOK_EVENT:-status_update}"
-TOOL_NAME="${CLAUDE_HOOK_TOOL_NAME:-}"
-TOOL_DESCRIPTION="${CLAUDE_HOOK_TOOL_DESCRIPTION:-}"
-TOOL_ARGS="${CLAUDE_HOOK_TOOL_ARGS:-}"
-QUESTION_TEXT="${CLAUDE_HOOK_QUESTION:-}"
-ERROR_MSG="${CLAUDE_HOOK_ERROR:-}"
-TASK="${CLAUDE_HOOK_TASK:-}"
-WORKING_DIR="${CLAUDE_WORKING_DIR:-$(pwd)}"
+TOOL_NAME="$(json_escape "${CLAUDE_HOOK_TOOL_NAME:-}")"
+TOOL_DESCRIPTION="$(json_escape "${CLAUDE_HOOK_TOOL_DESCRIPTION:-}")"
+TOOL_ARGS="$(json_escape "${CLAUDE_HOOK_TOOL_ARGS:-}")"
+QUESTION_TEXT="$(json_escape "${CLAUDE_HOOK_QUESTION:-}")"
+ERROR_MSG="$(json_escape "${CLAUDE_HOOK_ERROR:-}")"
+TASK="$(json_escape "${CLAUDE_HOOK_TASK:-}")"
+WORKING_DIR="$(json_escape "${CLAUDE_WORKING_DIR:-$(pwd)}")"
+TTY_PATH="$(json_escape "$(tty 2>/dev/null || echo '')")"
 
 case "$EVENT_TYPE" in
     session_start)
-        send_message "{\"type\":\"session_start\",\"session_id\":\"$SESSION_ID\",\"agent\":\"$AGENT\",\"data\":{\"pid\":$$,\"tty\":\"$(tty 2>/dev/null || echo '')\",\"working_directory\":\"$WORKING_DIR\"}}"
+        send_message "{\"type\":\"session_start\",\"session_id\":\"$SESSION_ID\",\"agent\":\"$AGENT\",\"data\":{\"pid\":$$,\"tty\":\"$TTY_PATH\",\"working_directory\":\"$WORKING_DIR\"}}"
         ;;
     permission_request)
         send_message "{\"type\":\"permission_request\",\"session_id\":\"$SESSION_ID\",\"agent\":\"$AGENT\",\"data\":{\"tool_name\":\"$TOOL_NAME\",\"tool_description\":\"$TOOL_DESCRIPTION\",\"arguments\":\"$TOOL_ARGS\"}}"

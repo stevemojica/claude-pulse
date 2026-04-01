@@ -139,11 +139,10 @@ final class CommandBarController: ObservableObject {
 
     private func startClickOutsideMonitor() {
         stopClickOutsideMonitor()
-        clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
-            guard let self, let window = self.panel as NSWindow? else { return }
-            let loc = event.locationInWindow
+        clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            guard let self else { return }
             let screenLoc = NSEvent.mouseLocation
-            if !window.frame.contains(screenLoc) {
+            if !self.panel.frame.contains(screenLoc) {
                 Task { @MainActor in self.collapse() }
             }
         }

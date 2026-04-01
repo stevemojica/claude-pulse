@@ -140,6 +140,10 @@ public final class SocketServer: @unchecked Sendable {
     // MARK: - Message Handling
 
     func handleMessage(_ message: SessionMessage, from clientFd: Int32) {
+        guard SecurityPolicy.validateMessageContent(message) else {
+            print("[ClaudePulse] Rejected message: failed security validation")
+            return
+        }
         Task { @MainActor [weak self] in
             self?.processMessage(message, clientFd: clientFd)
         }
@@ -237,8 +241,8 @@ private final class ClientConnection {
         readSource?.setEventHandler { [weak self] in
             self?.readAvailable()
         }
-        readSource?.setCancelHandler { [weak self] in
-            if let fd = self?.fd { close(fd) }
+        readSource?.setCancelHandler {
+            // fd is closed by server.clientDisconnected — do not double-close
         }
         readSource?.resume()
     }
