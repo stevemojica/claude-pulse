@@ -22,24 +22,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var socketServer: SocketServer?
     private var logWatcher: LogWatcher?
     private var soundManager: SoundManager?
-    private var updateManager: UpdateManager?
+    private var updateManager: UpdateManager!
     private var hotKeyMonitor: Any?
+    private var statusItem: NSStatusItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Hide dock icon — this is a background utility
-        NSApp.setActivationPolicy(.accessory)
+        // Hide dock icon but remain visible in Force Quit (Cmd+Opt+Esc)
+        NSApp.setActivationPolicy(.prohibited)
 
         appState = AppState()
         sessionManager = SessionManager()
-
-        // Initialize auto-updater
         updateManager = UpdateManager()
-        if let feedURL = URL(string: "https://github.com/stevemojica/claude-pulse/releases/latest/download/appcast.xml") {
-            updateManager?.configure(feedURL: feedURL)
-        }
 
         // Start the command bar
-        commandBar = CommandBarController(appState: appState, sessionManager: sessionManager, updateManager: updateManager!)
+        commandBar = CommandBarController(appState: appState, sessionManager: sessionManager, updateManager: updateManager)
         commandBar.show()
 
         // Start usage monitoring
@@ -53,6 +49,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Initialize sound effects
         soundManager = SoundManager(sessionManager: sessionManager)
+
+        // Check for updates silently on launch
+        updateManager.checkSilently()
+
+        // Add a minimal status bar item as a fallback way to quit
+        setupStatusItem()
 
         // Register global hotkey (Cmd+Shift+P)
         registerHotKey()
@@ -70,6 +72,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startLogWatcher() {
         logWatcher = LogWatcher(sessionManager: sessionManager)
         logWatcher?.start()
+    }
+
+    private func setupStatusItem() {
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        if let button = statusItem?.button {
+            button.image = NSImage(systemSymbolName: "brain.head.profile", accessibilityDescription: "Claude Pulse")
+        }
+        let menu = NSMenu()
+        menu.addItem(withTitle: "Toggle Command Bar", action: #selector(toggleCommandBar), keyEquivalent: "")
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Check for Updates...", action: #selector(checkUpdates), keyEquivalent: "")
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Quit Claude Pulse", action: #selector(quitApp), keyEquivalent: "q")
+        statusItem?.menu = menu
+    }
+
+    @objc private func toggleCommandBar() {
+        commandBar.toggle()
+    }
+
+    @objc private func checkUpdates() {
+        updateManager.checkForUpdates()
+        commandBar.expandToDashboard()
+    }
+
+    @objc private func quitApp() {
+        NSApp.terminate(nil)
     }
 
     private func registerHotKey() {

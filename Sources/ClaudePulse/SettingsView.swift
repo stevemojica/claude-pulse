@@ -99,12 +99,46 @@ struct SettingsView: View {
                         }
                     }
                     Spacer()
+                    if updateManager.isChecking {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
                     Button("Check for Updates") {
                         updateManager.checkForUpdates()
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .disabled(!updateManager.canCheckForUpdates)
+                    .disabled(updateManager.isChecking)
+                }
+
+                // Result message
+                if updateManager.showResult, let message = updateManager.resultMessage {
+                    HStack(spacing: 6) {
+                        Image(systemName: updateManager.updateAvailable ? "arrow.down.circle.fill" : "checkmark.circle.fill")
+                            .foregroundStyle(updateManager.updateAvailable ? .blue : .green)
+                            .font(.system(size: 11))
+                        Text(message)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        if updateManager.updateAvailable {
+                            Button("Download") {
+                                updateManager.openDownloadPage()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.mini)
+                        }
+                        Button(action: { updateManager.showResult = false }) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 8))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(8)
+                    .background(
+                        (updateManager.updateAvailable ? Color.blue : Color.green).opacity(0.08),
+                        in: RoundedRectangle(cornerRadius: 6)
+                    )
                 }
             }
 
