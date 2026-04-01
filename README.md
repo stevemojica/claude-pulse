@@ -7,7 +7,11 @@ A native macOS agent awareness hub that monitors your AI coding sessions and usa
 ![License: MIT](https://img.shields.io/badge/License-MIT-green)
 
 <p align="center">
-  <img src="screenshot.png" alt="Claude Pulse Dashboard" width="340">
+  <img src="screenshot-strip.png" alt="Claude Pulse — Floating Command Bar (collapsed)" width="500">
+</p>
+
+<p align="center">
+  <img src="screenshot-dashboard.png" alt="Claude Pulse — Full Dashboard with Agent Sessions and Usage Monitor" width="380">
 </p>
 
 ## Why This Exists

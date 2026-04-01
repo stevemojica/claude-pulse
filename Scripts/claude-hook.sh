@@ -1,62 +1,97 @@
 #!/bin/bash
-# Claude Code Hook for Claude Pulse
-# Sends real-time session events to the Claude Pulse socket server.
+# Claude Pulse Hook for Claude Code
+# Receives hook events via stdin JSON and forwards them to the Claude Pulse socket.
 #
-# Installation: Run Scripts/install-hooks.sh or manually add to ~/.claude/settings.json:
-# {
-#   "hooks": {
-#     "notification": [
-#       { "command": "/path/to/claude-hook.sh" }
-#     ]
-#   }
-# }
+# Claude Code passes event data as JSON on stdin. This script reads it,
+# transforms it into Claude Pulse's protocol, and sends it to the socket.
+#
+# Supported events: PreToolUse, PostToolUse, PermissionRequest, Notification,
+#                   SessionStart, Stop, SubagentStart, SubagentStop
 
 SOCKET_PATH="${HOME}/Library/Application Support/ClaudePulse/pulse.sock"
-SESSION_ID="${CLAUDE_SESSION_ID:-$(uuidgen)}"
-AGENT="claude_code"
 
 # Only proceed if the socket exists
 [ -S "$SOCKET_PATH" ] || exit 0
 
-# Escape a string for safe JSON embedding — handles \, ", newlines, tabs
-json_escape() {
-    printf '%s' "$1" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read())[1:-1], end="")' 2>/dev/null \
-        || printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\t/\\t/g' | tr -d '\n'
-}
+# Read the full JSON event from stdin
+INPUT=$(cat)
+
+# Extract common fields
+SESSION_ID=$(echo "$INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('session_id',''))" 2>/dev/null)
+EVENT_NAME=$(echo "$INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('hook_event_name',''))" 2>/dev/null)
+CWD=$(echo "$INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('cwd',''))" 2>/dev/null)
+TOOL_NAME=$(echo "$INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('tool_name',''))" 2>/dev/null)
+
+[ -z "$SESSION_ID" ] && exit 0
 
 send_message() {
-    local msg="$1"
-    echo "$msg" | socat - UNIX-CONNECT:"$SOCKET_PATH" 2>/dev/null || true
+    echo "$1" | socat - UNIX-CONNECT:"$SOCKET_PATH" 2>/dev/null || true
 }
 
-# Parse the hook event from Claude Code's environment
-EVENT_TYPE="${CLAUDE_HOOK_EVENT:-status_update}"
-TOOL_NAME="$(json_escape "${CLAUDE_HOOK_TOOL_NAME:-}")"
-TOOL_DESCRIPTION="$(json_escape "${CLAUDE_HOOK_TOOL_DESCRIPTION:-}")"
-TOOL_ARGS="$(json_escape "${CLAUDE_HOOK_TOOL_ARGS:-}")"
-QUESTION_TEXT="$(json_escape "${CLAUDE_HOOK_QUESTION:-}")"
-ERROR_MSG="$(json_escape "${CLAUDE_HOOK_ERROR:-}")"
-TASK="$(json_escape "${CLAUDE_HOOK_TASK:-}")"
-WORKING_DIR="$(json_escape "${CLAUDE_WORKING_DIR:-$(pwd)}")"
-TTY_PATH="$(json_escape "$(tty 2>/dev/null || echo '')")"
+# Escape a string for safe JSON embedding
+json_escape() {
+    printf '%s' "$1" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read())[1:-1], end="")' 2>/dev/null
+}
 
-case "$EVENT_TYPE" in
-    session_start)
-        send_message "{\"type\":\"session_start\",\"session_id\":\"$SESSION_ID\",\"agent\":\"$AGENT\",\"data\":{\"pid\":$$,\"tty\":\"$TTY_PATH\",\"working_directory\":\"$WORKING_DIR\"}}"
+ESCAPED_CWD=$(json_escape "$CWD")
+ESCAPED_TOOL=$(json_escape "$TOOL_NAME")
+
+case "$EVENT_NAME" in
+    SessionStart)
+        TTY_PATH=$(json_escape "$(tty 2>/dev/null || echo '')")
+        send_message "{\"type\":\"session_start\",\"session_id\":\"$SESSION_ID\",\"agent\":\"claude_code\",\"data\":{\"pid\":$PPID,\"tty\":\"$TTY_PATH\",\"working_directory\":\"$ESCAPED_CWD\"}}"
         ;;
-    permission_request)
-        send_message "{\"type\":\"permission_request\",\"session_id\":\"$SESSION_ID\",\"agent\":\"$AGENT\",\"data\":{\"tool_name\":\"$TOOL_NAME\",\"tool_description\":\"$TOOL_DESCRIPTION\",\"arguments\":\"$TOOL_ARGS\"}}"
+
+    PermissionRequest)
+        # Extract tool description from tool_input
+        TOOL_DESC=$(echo "$INPUT" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+ti = d.get('tool_input',{})
+# Summarize the tool input for display
+if 'command' in ti: print(ti['command'][:200])
+elif 'file_path' in ti: print(ti['file_path'])
+elif 'url' in ti: print(ti['url'])
+else: print(json.dumps(ti)[:200])
+" 2>/dev/null)
+        ESCAPED_DESC=$(json_escape "$TOOL_DESC")
+        send_message "{\"type\":\"permission_request\",\"session_id\":\"$SESSION_ID\",\"agent\":\"claude_code\",\"data\":{\"tool_name\":\"$ESCAPED_TOOL\",\"tool_description\":\"Permission requested\",\"arguments\":\"$ESCAPED_DESC\"}}"
         ;;
-    question)
-        send_message "{\"type\":\"question\",\"session_id\":\"$SESSION_ID\",\"agent\":\"$AGENT\",\"data\":{\"question_text\":\"$QUESTION_TEXT\"}}"
+
+    Notification)
+        NOTIF_TYPE=$(echo "$INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('notification_type',''))" 2>/dev/null)
+        case "$NOTIF_TYPE" in
+            permission_prompt)
+                send_message "{\"type\":\"permission_request\",\"session_id\":\"$SESSION_ID\",\"agent\":\"claude_code\",\"data\":{\"tool_name\":\"permission\",\"tool_description\":\"Agent needs your approval\",\"arguments\":\"\"}}"
+                ;;
+            idle_prompt)
+                send_message "{\"type\":\"question\",\"session_id\":\"$SESSION_ID\",\"agent\":\"claude_code\",\"data\":{\"question_text\":\"Agent is waiting for your input\"}}"
+                ;;
+        esac
         ;;
-    completed)
-        send_message "{\"type\":\"completed\",\"session_id\":\"$SESSION_ID\",\"agent\":\"$AGENT\",\"data\":{\"task\":\"$TASK\"}}"
+
+    PreToolUse)
+        send_message "{\"type\":\"status_update\",\"session_id\":\"$SESSION_ID\",\"agent\":\"claude_code\",\"data\":{\"status\":\"working\",\"task\":\"$ESCAPED_TOOL\"}}"
         ;;
-    error)
-        send_message "{\"type\":\"error\",\"session_id\":\"$SESSION_ID\",\"agent\":\"$AGENT\",\"data\":{\"error_message\":\"$ERROR_MSG\"}}"
+
+    PostToolUse)
+        send_message "{\"type\":\"status_update\",\"session_id\":\"$SESSION_ID\",\"agent\":\"claude_code\",\"data\":{\"status\":\"working\",\"task\":\"$ESCAPED_TOOL done\"}}"
         ;;
-    *)
-        send_message "{\"type\":\"status_update\",\"session_id\":\"$SESSION_ID\",\"agent\":\"$AGENT\",\"data\":{\"status\":\"working\",\"task\":\"$TASK\"}}"
+
+    Stop)
+        send_message "{\"type\":\"completed\",\"session_id\":\"$SESSION_ID\",\"agent\":\"claude_code\",\"data\":{\"task\":\"Session completed\"}}"
+        ;;
+
+    StopFailure)
+        send_message "{\"type\":\"error\",\"session_id\":\"$SESSION_ID\",\"agent\":\"claude_code\",\"data\":{\"error_message\":\"Session ended with error\"}}"
+        ;;
+
+    SubagentStart)
+        AGENT_TYPE=$(echo "$INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('agent_type','subagent'))" 2>/dev/null)
+        ESCAPED_AGENT=$(json_escape "$AGENT_TYPE")
+        send_message "{\"type\":\"status_update\",\"session_id\":\"$SESSION_ID\",\"agent\":\"claude_code\",\"data\":{\"status\":\"working\",\"task\":\"Subagent: $ESCAPED_AGENT\"}}"
         ;;
 esac
+
+# Always allow the action to proceed
+exit 0
