@@ -173,12 +173,14 @@ public final class SocketServer: @unchecked Sendable {
 
         case .statusUpdate:
             guard let id = UUID(uuidString: message.sessionId) else { return }
+            ensureSession(id: id, agent: agent, cwd: message.data?.workingDirectory, in: sm)
             let status = SessionStatus(rawValue: message.data?.status ?? "working") ?? .working
             sm.updateStatus(id: id, status: status, task: message.data?.task)
 
         case .permissionRequest:
             guard let id = UUID(uuidString: message.sessionId),
                   let toolName = message.data?.toolName else { return }
+            ensureSession(id: id, agent: agent, cwd: message.data?.workingDirectory, in: sm)
             let prompt = PermissionPrompt(
                 toolName: toolName,
                 description: message.data?.toolDescription ?? "",
@@ -191,6 +193,7 @@ public final class SocketServer: @unchecked Sendable {
         case .question:
             guard let id = UUID(uuidString: message.sessionId),
                   let text = message.data?.questionText else { return }
+            ensureSession(id: id, agent: agent, cwd: nil, in: sm)
             sm.setQuestion(id: id, question: text)
 
         case .completed:
@@ -201,6 +204,20 @@ public final class SocketServer: @unchecked Sendable {
             guard let id = UUID(uuidString: message.sessionId) else { return }
             sm.updateStatus(id: id, status: .errored, task: message.data?.errorMessage)
         }
+    }
+
+    /// Auto-create a session if we receive an event for an unknown session ID.
+    /// This handles cases where Pulse started after a Claude Code session was already running.
+    @MainActor
+    private func ensureSession(id: UUID, agent: AgentType, cwd: String?, in sm: SessionManager) {
+        guard sm.session(for: id) == nil else { return }
+        let session = AgentSession(
+            id: id, agentType: agent, status: .working,
+            terminalInfo: nil,
+            workingDirectory: cwd,
+            isPassive: false
+        )
+        sm.addSession(session)
     }
 
     private func sendPermissionResponse(sessionId: String, allowed: Bool, to clientFd: Int32) {
