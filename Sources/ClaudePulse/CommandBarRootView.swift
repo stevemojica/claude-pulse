@@ -5,6 +5,7 @@ import ClaudePulseCore
 struct CommandBarRootView: View {
     @ObservedObject var appState: AppState
     @ObservedObject var sessionManager: SessionManager
+    @ObservedObject var updateManager: UpdateManager
     @ObservedObject var controller: CommandBarController
 
     var body: some View {
@@ -25,6 +26,7 @@ struct CommandBarRootView: View {
                 CommandBarDashboardView(
                     appState: appState,
                     sessionManager: sessionManager,
+                    updateManager: updateManager,
                     onCollapse: { controller.collapse() },
                     onJumpToTerminal: { session in
                         TerminalJumper.jump(to: session)

@@ -40,13 +40,14 @@ final class CommandBarController: ObservableObject {
     private var clickMonitor: Any?
     private var autoCollapseTask: Task<Void, Never>?
 
-    init(appState: AppState, sessionManager: SessionManager) {
+    init(appState: AppState, sessionManager: SessionManager, updateManager: UpdateManager) {
         self.layout = ScreenLayout()
         self.panel = CommandBarPanel()
 
         let rootView = CommandBarRootView(
             appState: appState,
             sessionManager: sessionManager,
+            updateManager: updateManager,
             controller: self
         )
         let hostView = NSHostingView(rootView: rootView)
