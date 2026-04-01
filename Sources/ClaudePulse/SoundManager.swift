@@ -4,12 +4,13 @@ import AVFoundation
 import ClaudePulseCore
 
 /// Programmatically generates and plays subtle notification sounds.
-/// No shipped audio files — sounds are synthesized using AVAudioEngine.
+/// Uses NSSound for system sounds with AVAudioEngine tone synthesis as primary.
 @MainActor
 final class SoundManager {
     private var engine: AVAudioEngine?
     private var playerNode: AVAudioPlayerNode?
     private var eventObserver: Any?
+    private var engineReady = false
 
     @AppStorage("soundEnabled") private var soundEnabled = true
     @AppStorage("soundVolume") private var soundVolume: Double = 0.5
@@ -30,13 +31,33 @@ final class SoundManager {
     }
 
     private func setupEngine() {
-        engine = AVAudioEngine()
-        playerNode = AVAudioPlayerNode()
-        guard let engine, let playerNode else { return }
-        engine.attach(playerNode)
-        let format = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 1)!
-        engine.connect(playerNode, to: engine.mainMixerNode, format: format)
-        try? engine.start()
+        let audioEngine = AVAudioEngine()
+        let player = AVAudioPlayerNode()
+
+        audioEngine.attach(player)
+
+        // Use the output node's format to avoid sample rate mismatches
+        let outputFormat = audioEngine.outputNode.outputFormat(forBus: 0)
+        let mixerFormat = AVAudioFormat(
+            standardFormatWithSampleRate: outputFormat.sampleRate,
+            channels: 1
+        )
+
+        guard let format = mixerFormat else {
+            print("[ClaudePulse] Sound: Could not create audio format")
+            return
+        }
+
+        audioEngine.connect(player, to: audioEngine.mainMixerNode, format: format)
+
+        do {
+            try audioEngine.start()
+            engine = audioEngine
+            playerNode = player
+            engineReady = true
+        } catch {
+            print("[ClaudePulse] Sound: AVAudioEngine failed to start: \(error). Falling back to system sounds.")
+        }
     }
 
     private func handleEvent(_ event: String) {
@@ -44,30 +65,58 @@ final class SoundManager {
 
         switch event {
         case SessionManager.SessionEvent.sessionAdded.rawValue:
+            // New session connected — quiet pop
             playTone(frequency: 880, duration: 0.08, volume: 0.3)
+
         case SessionManager.SessionEvent.permissionRequested.rawValue:
+            // Permission needed — two-tone ascending chime
             playTone(frequency: 660, duration: 0.15, volume: 0.5)
             Task { @MainActor [weak self] in
-                try? await Task.sleep(nanoseconds: 180_000_000) // 0.18s
+                try? await Task.sleep(nanoseconds: 180_000_000)
                 self?.playTone(frequency: 880, duration: 0.12, volume: 0.4)
             }
+
         case SessionManager.SessionEvent.questionAsked.rawValue:
-            playTone(frequency: 550, duration: 0.12, volume: 0.4)
-        case SessionManager.SessionEvent.sessionUpdated.rawValue:
-            // Check if it's a completion
-            break // Only play for attention-worthy events
+            // Agent has a question — gentle tone
+            playTone(frequency: 550, duration: 0.15, volume: 0.4)
+
+        case SessionManager.SessionEvent.sessionRemoved.rawValue:
+            // Session ended — low soft tone
+            playTone(frequency: 440, duration: 0.1, volume: 0.2)
+
         default:
             break
         }
     }
 
-    /// Generate and play a sine wave tone.
+    /// Generate and play a sine wave tone, or fall back to system sound.
     private func playTone(frequency: Double, duration: Double, volume: Float) {
-        guard let engine, let playerNode, engine.isRunning else { return }
+        if engineReady {
+            playEngineTone(frequency: frequency, duration: duration, volume: volume)
+        } else {
+            playSystemSound()
+        }
+    }
 
-        let sampleRate = 44100.0
+    private func playEngineTone(frequency: Double, duration: Double, volume: Float) {
+        guard let engine, let playerNode, engine.isRunning else {
+            // Engine died — try to restart
+            engineReady = false
+            setupEngine()
+            if !engineReady { playSystemSound(); return }
+            guard let engine = self.engine, let playerNode = self.playerNode, engine.isRunning else { return }
+            playEngineToneInternal(playerNode: playerNode, frequency: frequency, duration: duration, volume: volume, sampleRate: engine.outputNode.outputFormat(forBus: 0).sampleRate)
+            return
+        }
+
+        let sampleRate = engine.outputNode.outputFormat(forBus: 0).sampleRate
+        playEngineToneInternal(playerNode: playerNode, frequency: frequency, duration: duration, volume: volume, sampleRate: sampleRate)
+    }
+
+    private func playEngineToneInternal(playerNode: AVAudioPlayerNode, frequency: Double, duration: Double, volume: Float, sampleRate: Double) {
         let frameCount = AVAudioFrameCount(sampleRate * duration)
-        guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1),
+        guard frameCount > 0,
+              let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1),
               let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else { return }
 
         buffer.frameLength = frameCount
@@ -77,7 +126,6 @@ final class SoundManager {
 
         for i in 0..<Int(frameCount) {
             let t = Double(i) / sampleRate
-            // Sine wave with exponential decay envelope
             let envelope = Float(exp(-t * 8.0 / duration))
             channelData[i] = sin(Float(2.0 * .pi * frequency * t)) * adjustedVolume * envelope
         }
@@ -86,7 +134,11 @@ final class SoundManager {
         if !playerNode.isPlaying { playerNode.play() }
     }
 
-    /// Call before releasing to clean up resources safely on the main actor.
+    /// Fallback: use macOS system sound
+    private func playSystemSound() {
+        NSSound.beep()
+    }
+
     func tearDown() {
         if let observer = eventObserver {
             NotificationCenter.default.removeObserver(observer)
@@ -95,13 +147,12 @@ final class SoundManager {
         playerNode?.stop()
         engine?.stop()
         engine = nil
+        engineReady = false
     }
 
     deinit {
-        // Observer removal is safe from any thread
         if let observer = eventObserver {
             NotificationCenter.default.removeObserver(observer)
         }
     }
 }
-
