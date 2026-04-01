@@ -40,6 +40,35 @@ jobs:
             echo "Warning: No app icon found"
           fi
 
+      - name: Import signing certificate
+        env:
+          CERTIFICATE_P12: ${{ secrets.DEVELOPER_ID_APPLICATION }}
+          CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_PASSWORD }}
+        run: |
+          # Create a temporary keychain
+          KEYCHAIN_PATH=$RUNNER_TEMP/signing.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Import the certificate
+          CERT_PATH=$RUNNER_TEMP/certificate.p12
+          echo "$CERTIFICATE_P12" | base64 --decode > "$CERT_PATH"
+          security import "$CERT_PATH" \
+            -P "$CERTIFICATE_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+
+          # Add keychain to the search list
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
       - name: Create app bundle
         run: |
           APP="Claude Pulse.app"
@@ -83,6 +112,30 @@ jobs:
           </plist>
           EOF
 
+      - name: Code sign the app
+        run: |
+          # Find the Developer ID Application certificate
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+
+          if [ -z "$IDENTITY" ]; then
+            echo "Warning: No Developer ID Application certificate found. Skipping code signing."
+          else
+            echo "Signing with: $IDENTITY"
+
+            # Sign all binaries inside the app bundle
+            codesign --force --options runtime --timestamp \
+              --sign "$IDENTITY" \
+              "Claude Pulse.app/Contents/MacOS/ClaudePulse"
+
+            codesign --force --options runtime --timestamp \
+              --sign "$IDENTITY" \
+              "Claude Pulse.app"
+
+            # Verify
+            codesign --verify --deep --strict "Claude Pulse.app"
+            echo "Code signing verified successfully"
+          fi
+
       - name: Create DMG
         run: |
           mkdir -p dmg-staging
@@ -92,6 +145,48 @@ jobs:
             -srcfolder dmg-staging \
             -ov -format UDZO \
             "ClaudePulse-${{ steps.version.outputs.VERSION }}.dmg"
+
+      - name: Sign DMG
+        run: |
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+          if [ -n "$IDENTITY" ]; then
+            codesign --force --timestamp \
+              --sign "$IDENTITY" \
+              "ClaudePulse-${{ steps.version.outputs.VERSION }}.dmg"
+            echo "DMG signed successfully"
+          fi
+
+      - name: Notarize app
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          DMG="ClaudePulse-${{ steps.version.outputs.VERSION }}.dmg"
+
+          if [ -z "$APPLE_ID" ] || [ -z "$APPLE_ID_PASSWORD" ] || [ -z "$APPLE_TEAM_ID" ]; then
+            echo "Warning: Notarization secrets not configured. Skipping notarization."
+            exit 0
+          fi
+
+          echo "Submitting for notarization..."
+          xcrun notarytool submit "$DMG" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_ID_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait \
+            --timeout 600
+
+          echo "Stapling notarization ticket..."
+          xcrun stapler staple "$DMG"
+          echo "Notarization complete"
+
+      - name: Clean up keychain
+        if: always()
+        run: |
+          if [ -n "$KEYCHAIN_PATH" ]; then
+            security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+          fi
 
       - name: Create release
         uses: softprops/action-gh-release@v2
