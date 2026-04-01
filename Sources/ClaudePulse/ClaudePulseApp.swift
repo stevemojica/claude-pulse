@@ -25,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var updateManager: UpdateManager!
     private var hotKeyMonitor: Any?
     private var statusItem: NSStatusItem?
+    private var pruneTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Hide dock icon but remain visible in Force Quit (Cmd+Opt+Esc)
@@ -58,6 +59,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Register global hotkey (Cmd+Shift+P)
         registerHotKey()
+
+        // Prune stale sessions every 10 minutes
+        pruneTimer = Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.sessionManager.pruneStale(olderThan: 1800) // 30 min
+            }
+        }
     }
 
     private func startSocketServer() {
@@ -113,6 +121,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        pruneTimer?.invalidate()
         soundManager?.tearDown()
         socketServer?.stop()
         logWatcher?.stop()

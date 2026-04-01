@@ -24,6 +24,9 @@ struct SettingsView: View {
                 Text("Poll Interval: \(Int(pollInterval))s")
                     .font(.system(size: 11, weight: .medium))
                 Slider(value: $pollInterval, in: 30...300, step: 30)
+                Text("Min 30s to avoid API rate limiting")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.quaternary)
             }
 
             Divider()
@@ -32,10 +35,10 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Alert Thresholds")
                     .font(.system(size: 11, weight: .medium))
-                Toggle("50%", isOn: $alert50)
-                Toggle("75%", isOn: $alert75)
-                Toggle("90%", isOn: $alert90)
-                Toggle("95%", isOn: $alert95)
+                Toggle("50% — halfway", isOn: $alert50)
+                Toggle("75% — elevated", isOn: $alert75)
+                Toggle("90% — approaching limit", isOn: $alert90)
+                Toggle("95% — near limit", isOn: $alert95)
             }
             .toggleStyle(.switch)
             .controlSize(.small)

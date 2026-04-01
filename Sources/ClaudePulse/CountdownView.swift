@@ -40,7 +40,7 @@ struct CountdownView: View {
     }
 
     var body: some View {
-        if let target = countdownTarget {
+        if let target = countdownTarget, target.resetDate > now {
             let (h, m, s) = timeComponents(until: target.resetDate)
 
             VStack(spacing: 8) {

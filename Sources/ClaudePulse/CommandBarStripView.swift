@@ -16,7 +16,7 @@ struct CommandBarStripView: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.teal)
 
-            // Agent count
+            // Agent session dots — colored by status
             if activeCount > 0 {
                 HStack(spacing: 4) {
                     ForEach(sessionManager.activeSessions.prefix(5)) { session in
@@ -26,17 +26,19 @@ struct CommandBarStripView: View {
                         Text("+\(activeCount - 5)")
                             .font(.system(size: 9, weight: .medium))
                             .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
                 }
             }
 
             Spacer()
 
-            // Usage percentage
+            // Usage percentage with window label
             if appState.started {
-                Text("\(Int(appState.fiveHourPct))%")
+                Text("\(Int(appState.fiveHourPct))% 5h")
                     .font(.system(size: 11, weight: .bold, design: .monospaced))
                     .foregroundStyle(usageColor)
+                    .help("5-hour session usage")
             }
 
             // Attention badge
@@ -46,6 +48,7 @@ struct CommandBarStripView: View {
                     .foregroundStyle(.white)
                     .frame(width: 16, height: 16)
                     .background(.red, in: Circle())
+                    .help("\(attentionCount) session(s) need attention")
             }
         }
         .padding(.horizontal, 12)
@@ -53,6 +56,8 @@ struct CommandBarStripView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.ultraThinMaterial, in: Capsule())
         .overlay(Capsule().stroke(.white.opacity(0.1), lineWidth: 0.5))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Claude Pulse: \(Int(appState.fiveHourPct))% usage, \(activeCount) sessions, \(attentionCount) need attention")
     }
 
     private var usageColor: Color {
@@ -79,6 +84,7 @@ struct SessionDot: View {
                     .animation(.easeInOut(duration: 1).repeatForever(autoreverses: true), value: session.status == .working)
             )
             .help("\(session.agentType.displayName): \(session.status.displayLabel)")
+            .accessibilityLabel("\(session.agentType.displayName) \(session.status.displayLabel)")
     }
 
     private var dotColor: Color {

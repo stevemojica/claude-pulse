@@ -38,7 +38,7 @@ final class AppState: ObservableObject {
             store = try HistoryStore()
             alerts.requestPermission()
         } catch {
-            self.error = "\(error)"
+            self.error = friendlyError(error)
             return
         }
         Task { await refresh() }
@@ -121,5 +121,22 @@ final class AppState: ObservableObject {
         if UserDefaults.standard.object(forKey: "alert90") == nil || UserDefaults.standard.bool(forKey: "alert90") { active.insert(90) }
         if UserDefaults.standard.object(forKey: "alert95") == nil || UserDefaults.standard.bool(forKey: "alert95") { active.insert(95) }
         await alerts.updateThresholds(active)
+    }
+
+    private func friendlyError(_ error: Error) -> String {
+        let msg = "\(error)"
+        if msg.contains("keychainItemNotFound") || msg.contains("-25300") {
+            return "Claude Code credentials not found. Sign in to Claude Code first, then restart Claude Pulse."
+        }
+        if msg.contains("-34018") || msg.contains("errSecMissingEntitlement") {
+            return "Keychain access denied. Run Claude Pulse from an app bundle with proper entitlements."
+        }
+        if msg.contains("401") || msg.contains("expired") {
+            return "Session expired. Re-authenticate in Claude Code, then restart Claude Pulse."
+        }
+        if msg.contains("Could not connect") || msg.contains("NSURLErrorDomain") {
+            return "Cannot reach Anthropic API. Check your internet connection."
+        }
+        return msg
     }
 }
