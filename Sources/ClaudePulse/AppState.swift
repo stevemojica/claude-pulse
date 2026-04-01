@@ -93,7 +93,7 @@ final class AppState: ObservableObject {
             crossedAlerts = await alerts.crossedThresholds(usage: fresh)
             coachTips = coach.advice(usage: fresh, predictions: preds)
         } catch {
-            self.error = "\(error)"
+            self.error = friendlyError(error)
         }
     }
 
@@ -130,6 +130,9 @@ final class AppState: ObservableObject {
         }
         if msg.contains("-34018") || msg.contains("errSecMissingEntitlement") {
             return "Keychain access denied. Run Claude Pulse from an app bundle with proper entitlements."
+        }
+        if msg.contains("429") {
+            return "Rate limited — usage data will refresh shortly."
         }
         if msg.contains("401") || msg.contains("expired") {
             return "Session expired. Re-authenticate in Claude Code, then restart Claude Pulse."
