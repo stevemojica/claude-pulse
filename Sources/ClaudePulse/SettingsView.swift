@@ -7,6 +7,8 @@ struct SettingsView: View {
     @AppStorage("alert90") private var alert90 = true
     @AppStorage("alert95") private var alert95 = true
     @AppStorage("accentColorName") private var accentColorName = "green"
+    @AppStorage("soundEnabled") private var soundEnabled = true
+    @AppStorage("soundVolume") private var soundVolume: Double = 0.5
     @Environment(\.dismiss) private var dismiss
 
     private let colorOptions = ["green", "blue", "purple", "orange", "teal"]
@@ -39,6 +41,28 @@ struct SettingsView: View {
 
             Divider()
 
+            // Sound settings
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Sound Effects")
+                    .font(.system(size: 11, weight: .medium))
+                Toggle("Enable sounds", isOn: $soundEnabled)
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                if soundEnabled {
+                    HStack {
+                        Image(systemName: "speaker.fill")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.tertiary)
+                        Slider(value: $soundVolume, in: 0...1)
+                        Image(systemName: "speaker.wave.3.fill")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            }
+
+            Divider()
+
             // Color theme
             VStack(alignment: .leading, spacing: 6) {
                 Text("Accent Color")
@@ -56,6 +80,17 @@ struct SettingsView: View {
                 }
             }
 
+            Divider()
+
+            // Hotkey info
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Keyboard Shortcut")
+                    .font(.system(size: 11, weight: .medium))
+                Text("⌘⇧P — Toggle command bar")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
+
             Spacer()
 
             Button("Done") { dismiss() }
@@ -64,7 +99,7 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(16)
-        .frame(width: 300, height: 360)
+        .frame(width: 300, height: 440)
     }
 
     private func colorFor(_ name: String) -> Color {
