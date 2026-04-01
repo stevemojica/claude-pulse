@@ -51,8 +51,25 @@ final class UpdateManager: ObservableObject {
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-                resultMessage = "Could not reach GitHub. Try again later."
+            guard let http = response as? HTTPURLResponse else {
+                resultMessage = "Unexpected response from GitHub."
+                return
+            }
+
+            if http.statusCode == 404 {
+                // No releases published yet
+                updateAvailable = false
+                resultMessage = "No releases published yet. You're on the latest build."
+                return
+            }
+
+            if http.statusCode == 403 {
+                resultMessage = "GitHub API rate limited. Try again in a few minutes."
+                return
+            }
+
+            guard http.statusCode == 200 else {
+                resultMessage = "GitHub returned status \(http.statusCode). Try again later."
                 return
             }
 
@@ -88,6 +105,17 @@ final class UpdateManager: ObservableObject {
                 updateAvailable = false
                 latestVersion = nil
                 resultMessage = "You're up to date. (v\(currentVersion))"
+            }
+        } catch let error as URLError {
+            switch error.code {
+            case .notConnectedToInternet, .networkConnectionLost:
+                resultMessage = "No internet connection. Check your network and try again."
+            case .timedOut:
+                resultMessage = "Request timed out. GitHub may be slow — try again."
+            case .cannotFindHost, .dnsLookupFailed:
+                resultMessage = "Cannot reach GitHub. Check your internet connection."
+            default:
+                resultMessage = "Network error: \(error.localizedDescription)"
             }
         } catch {
             resultMessage = "Could not check for updates: \(error.localizedDescription)"
