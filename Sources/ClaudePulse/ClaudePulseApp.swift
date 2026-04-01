@@ -31,6 +31,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Hide dock icon but remain visible in Force Quit (Cmd+Opt+Esc)
         NSApp.setActivationPolicy(.prohibited)
 
+        // Auto-configure Claude Code hooks on first launch (and update on every launch)
+        HookInstaller.installIfNeeded()
+
         appState = AppState()
         sessionManager = SessionManager()
         updateManager = UpdateManager()

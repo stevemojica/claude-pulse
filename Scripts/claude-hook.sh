@@ -25,7 +25,7 @@ TOOL_NAME=$(echo "$INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin);
 [ -z "$SESSION_ID" ] && exit 0
 
 send_message() {
-    echo "$1" | socat - UNIX-CONNECT:"$SOCKET_PATH" 2>/dev/null || true
+    echo "$1" | /usr/bin/nc -U "$SOCKET_PATH" 2>/dev/null || true
 }
 
 # Escape a string for safe JSON embedding
