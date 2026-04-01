@@ -32,8 +32,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appState = AppState()
         sessionManager = SessionManager()
 
+        // Initialize auto-updater
+        updateManager = UpdateManager()
+        if let feedURL = URL(string: "https://github.com/stevemojica/claude-pulse/releases/latest/download/appcast.xml") {
+            updateManager?.configure(feedURL: feedURL)
+        }
+
         // Start the command bar
-        commandBar = CommandBarController(appState: appState, sessionManager: sessionManager)
+        commandBar = CommandBarController(appState: appState, sessionManager: sessionManager, updateManager: updateManager!)
         commandBar.show()
 
         // Start usage monitoring
@@ -47,12 +53,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Initialize sound effects
         soundManager = SoundManager(sessionManager: sessionManager)
-
-        // Initialize auto-updater
-        updateManager = UpdateManager()
-        if let feedURL = URL(string: "https://github.com/stevemojica/claude-pulse/releases/latest/download/appcast.xml") {
-            updateManager?.configure(feedURL: feedURL)
-        }
 
         // Register global hotkey (Cmd+Shift+P)
         registerHotKey()

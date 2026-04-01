@@ -5,6 +5,7 @@ import ClaudePulseCore
 struct CommandBarDashboardView: View {
     @ObservedObject var appState: AppState
     @ObservedObject var sessionManager: SessionManager
+    @ObservedObject var updateManager: UpdateManager
     let onCollapse: () -> Void
     let onJumpToTerminal: (AgentSession) -> Void
     @State private var showUsage = true
@@ -30,6 +31,30 @@ struct CommandBarDashboardView: View {
 
             ScrollView {
                 VStack(spacing: 14) {
+                    // Update banner
+                    if updateManager.updateAvailable, let version = updateManager.latestVersion {
+                        HStack(spacing: 8) {
+                            Image(systemName: "arrow.down.circle.fill")
+                                .foregroundStyle(.blue)
+                                .font(.system(size: 12))
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text("Update available: v\(version)")
+                                    .font(.system(size: 11, weight: .medium))
+                                Text("Current: v\(updateManager.currentVersion)")
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button("Update") {
+                                updateManager.checkForUpdates()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.mini)
+                        }
+                        .padding(10)
+                        .background(.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                    }
+
                     // Sessions section
                     sessionsSection
 
@@ -291,7 +316,7 @@ struct CommandBarDashboardView: View {
             .buttonStyle(.plain)
             .help("Settings")
             .popover(isPresented: $showSettings) {
-                SettingsView()
+                SettingsView(updateManager: updateManager)
             }
 
             Button(action: { NSApplication.shared.terminate(nil) }) {

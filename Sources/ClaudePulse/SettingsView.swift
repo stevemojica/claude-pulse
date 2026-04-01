@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct SettingsView: View {
+    @ObservedObject var updateManager: UpdateManager
     @AppStorage("pollInterval") private var pollInterval: Double = 60
     @AppStorage("alert50") private var alert50 = true
     @AppStorage("alert75") private var alert75 = true
@@ -82,6 +83,33 @@ struct SettingsView: View {
 
             Divider()
 
+            // Updates
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Updates")
+                    .font(.system(size: 11, weight: .medium))
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Version \(updateManager.currentVersion)")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                        if updateManager.updateAvailable, let version = updateManager.latestVersion {
+                            Text("v\(version) available")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(.blue)
+                        }
+                    }
+                    Spacer()
+                    Button("Check for Updates") {
+                        updateManager.checkForUpdates()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(!updateManager.canCheckForUpdates)
+                }
+            }
+
+            Divider()
+
             // Hotkey info
             VStack(alignment: .leading, spacing: 4) {
                 Text("Keyboard Shortcut")
@@ -99,7 +127,7 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(16)
-        .frame(width: 300, height: 440)
+        .frame(width: 300, height: 520)
     }
 
     private func colorFor(_ name: String) -> Color {
