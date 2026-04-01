@@ -29,6 +29,17 @@ jobs:
       - name: Build release binary
         run: swift build -c release
 
+      - name: Generate app icon
+        run: |
+          if [ -f AppIcon.png ]; then
+            ./Scripts/generate-icns.sh AppIcon.png
+            echo "Generated AppIcon.icns from AppIcon.png"
+          elif [ -f AppIcon.icns ]; then
+            echo "Using existing AppIcon.icns"
+          else
+            echo "Warning: No app icon found"
+          fi
+
       - name: Create app bundle
         run: |
           APP="Claude Pulse.app"
