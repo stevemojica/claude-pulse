@@ -64,7 +64,9 @@ final class CommandBarController: ObservableObject {
             guard let event = notification.userInfo?["event"] as? String else { return }
             if event == SessionManager.SessionEvent.permissionRequested.rawValue ||
                event == SessionManager.SessionEvent.questionAsked.rawValue {
-                self?.expandToPreview()
+                Task { @MainActor in
+                    self?.expandToPreview()
+                }
             }
         }
     }
@@ -156,6 +158,8 @@ final class CommandBarController: ObservableObject {
     }
 
     deinit {
-        stopClickOutsideMonitor()
+        if let monitor = clickMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
     }
 }

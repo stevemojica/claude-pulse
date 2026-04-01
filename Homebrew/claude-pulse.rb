@@ -1,10 +1,10 @@
 cask "claude-pulse" do
-  version "1.0.0"
+  version "2.0.0"
   sha256 :no_check
 
   url "https://github.com/stevemojica/claude-pulse/releases/download/v#{version}/ClaudePulse-#{version}.dmg"
   name "Claude Pulse"
-  desc "macOS menubar app for monitoring Claude API usage limits"
+  desc "macOS agent awareness hub for monitoring AI coding sessions and usage limits"
   homepage "https://github.com/stevemojica/claude-pulse"
 
   depends_on macos: ">= :sonoma"

@@ -14,6 +14,7 @@ struct ClaudePulseApp: App {
     }
 }
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var appState: AppState!
     private var sessionManager: SessionManager!
