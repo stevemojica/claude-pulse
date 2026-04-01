@@ -163,17 +163,23 @@ struct CommandBarDashboardView: View {
             .buttonStyle(.plain)
 
             if showUsage {
-                // Error banner
+                // Error / status banner
                 if let error = appState.error {
-                    HStack {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.yellow)
+                    let isTransient = error.contains("Rate limited") || error.contains("refresh shortly")
+                    HStack(spacing: 6) {
+                        Image(systemName: isTransient ? "clock.arrow.circlepath" : "exclamationmark.triangle.fill")
+                            .foregroundStyle(isTransient ? .orange : .yellow)
+                            .font(.system(size: 11))
                         Text(error)
                             .font(.system(size: 10))
                             .lineLimit(2)
+                            .foregroundStyle(isTransient ? .secondary : .primary)
                     }
                     .padding(8)
-                    .background(.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
+                    .background(
+                        (isTransient ? Color.orange : Color.red).opacity(0.08),
+                        in: RoundedRectangle(cornerRadius: 6)
+                    )
                 }
 
                 // Usage bars
