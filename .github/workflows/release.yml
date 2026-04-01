@@ -7,6 +7,9 @@ on:
 permissions:
   contents: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   release:
     runs-on: macos-14
@@ -20,6 +23,9 @@ jobs:
         id: version
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve dependencies
+        run: swift package resolve
+
       - name: Build release binary
         run: swift build -c release
 
@@ -30,9 +36,11 @@ jobs:
           mkdir -p "$APP/Contents/Resources"
 
           cp .build/release/ClaudePulse "$APP/Contents/MacOS/"
-          cp AppIcon.icns "$APP/Contents/Resources/"
+          cp AppIcon.icns "$APP/Contents/Resources/" 2>/dev/null || true
           cp Scripts/install.sh "$APP/Contents/Resources/"
           cp Scripts/com.claudepulse.agent.plist "$APP/Contents/Resources/"
+          cp Scripts/claude-hook.sh "$APP/Contents/Resources/"
+          cp Scripts/install-hooks.sh "$APP/Contents/Resources/"
 
           cat > "$APP/Contents/Info.plist" << EOF
           <?xml version="1.0" encoding="UTF-8"?>

@@ -1,6 +1,6 @@
 # Claude Pulse
 
-A native macOS menubar app that monitors your Claude usage limits in real time. Glance at your usage from anywhere on your Mac — no terminal required.
+A native macOS agent awareness hub that monitors your AI coding sessions and usage limits in real time. See what all your agents are doing, approve permissions without switching apps, and track your quota — all from a floating command bar.
 
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-blue)
 ![Swift 5.10](https://img.shields.io/badge/Swift-5.10-orange)
@@ -12,31 +12,50 @@ A native macOS menubar app that monitors your Claude usage limits in real time. 
 
 ## Why This Exists
 
-Every existing Claude usage tool lives inside the terminal. Claude Pulse breaks out into a native macOS citizen — a menubar app with visual progress bars, predictive burn rate, budget alerts, and a live countdown clock. It works whether Claude Code is running or not.
+When you're vibe coding with 5-10 agent conversations open, your brain can't track which sessions need attention, which finished, and which are waiting for approval. Claude Pulse surfaces the right information at the right moment with minimal friction — guiding your attention back to the right place.
+
+**What makes it unique**: Claude Pulse is the only tool that merges **usage/budget intelligence** (burn rate, pacing, cost tracking) with **session awareness** (what are my agents doing right now?). You see not just *what* your agents are doing, but *how fast they're burning through your quota doing it*.
 
 ## Features
 
-- **Menubar quick-glance** — persistent icon showing your 5-hour usage percentage
-- **Visual dashboard** — frosted glass popover with progress bars for all usage windows
+### Agent Session Tracking
+- **Multi-agent support** — Claude Code, Codex, Gemini CLI, Cursor, OpenCode, Droid
+- **Real-time status** — see which agents are working, idle, completed, or errored
+- **Permission relay** — approve or deny agent tool calls directly from the command bar
+- **Terminal jump** — click a session card to activate the correct terminal window/tab
+- **Log file fallback** — detects Claude Code sessions even without hooks configured
+
+### Floating Command Bar
+- **Three states** — collapsed strip, preview, full dashboard
+- **Non-activating overlay** — never steals focus from your editor
+- **Auto-expand** — pops up when an agent needs your attention, auto-collapses after 5s
+- **Global hotkey** — toggle with Cmd+Shift+P from anywhere
+- **Works on all displays** — positions below the notch on MacBooks, top-center elsewhere
+
+### Usage Intelligence
+- **Visual progress bars** — all usage windows with glossy gradients and color thresholds
 - **Per-model breakdown** — separate tracking for Sonnet and Opus
-- **Extra credits tracking** — monitor your monthly spend with dollar amounts
+- **Extra credits tracking** — monitor monthly spend with dollar amounts
 - **Predictive burn rate** — linear regression estimates when you'll hit limits
-- **Pace Coach** — context-aware tips when you're burning through quota
-- **Live countdown clock** — ticking HH:MM:SS timer when you're near a limit
-- **Budget alerts** — native macOS notifications at configurable thresholds (50/75/90/95%)
+- **Agent-aware Pace Coach** — "3 agents running, at this burn rate you'll hit your 5h limit in 22 minutes"
+- **Live countdown clock** — ticking HH:MM:SS when you're near a limit
+- **Budget alerts** — native macOS notifications at configurable thresholds
 - **Usage history** — SQLite-backed sparkline trends and 7-day charts
-- **Customizable** — poll interval, alert thresholds, 5 color themes
-- **CLI tool included** — `ClaudePulseCLI` for terminal/scripting use
+
+### Sound & Polish
+- **Programmatic sound effects** — synthesized via AVAudioEngine, no shipped audio files
+- **Customizable** — volume, on/off per event type, 5 accent color themes
+- **Auto-updates** — Sparkle framework checks GitHub Releases with Ed25519 verification
 
 ## Prerequisites
 
 - **macOS 14 (Sonoma) or later**
 - **Claude Pro or Max subscription** with Claude Code access
-- **Claude Code installed** and logged in (the app reads your OAuth token from macOS Keychain)
+- **Claude Code installed** and logged in (reads your OAuth token from macOS Keychain)
 
 ## Quick Start
 
-### Option 1: Build and run with Swift Package Manager
+### Build and run
 
 ```bash
 git clone https://github.com/stevemojica/claude-pulse.git
@@ -44,14 +63,14 @@ cd claude-pulse
 swift build -c release
 ```
 
-**Run the menubar app:**
+**Run the app:**
 
 ```bash
 # Create an app bundle
 mkdir -p ~/Applications/Claude\ Pulse.app/Contents/MacOS
 cp .build/release/ClaudePulse ~/Applications/Claude\ Pulse.app/Contents/MacOS/
 
-# Create Info.plist (required for menubar + notifications)
+# Create Info.plist (required for notifications + Sparkle updates)
 cat > ~/Applications/Claude\ Pulse.app/Contents/Info.plist << 'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
@@ -67,9 +86,9 @@ cat > ~/Applications/Claude\ Pulse.app/Contents/Info.plist << 'EOF'
     <key>CFBundleExecutable</key>
     <string>ClaudePulse</string>
     <key>CFBundleVersion</key>
-    <string>1.0</string>
+    <string>2.0</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
+    <string>2.0</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>LSUIElement</key>
@@ -90,30 +109,60 @@ open ~/Applications/Claude\ Pulse.app
 swift run ClaudePulseCLI
 ```
 
-### Option 2: Download the DMG
+### Download a release
 
 Check [Releases](https://github.com/stevemojica/claude-pulse/releases) for pre-built binaries.
 
+## Setting Up Agent Hooks
+
+For real-time session tracking with permission relay, install the Claude Code hook:
+
+```bash
+./Scripts/install-hooks.sh
+```
+
+This adds a hook to `~/.claude/settings.json` that sends events to the Claude Pulse socket. Without the hook, Claude Pulse still detects sessions by watching log files (passive mode — status only, no permission relay).
+
 ## How It Works
 
-Claude Pulse reads your OAuth token from the macOS Keychain (where Claude Code stores it) and polls the usage API every 60 seconds. No API keys to configure — if Claude Code is logged in, Claude Pulse just works.
+### Architecture
 
 ```
-macOS Keychain ("Claude Code-credentials")
-    → OAuth token
-        → GET https://api.anthropic.com/api/oauth/usage
-            → Usage data displayed in menubar
+┌─────────────────────────────────────────────────────┐
+│                  Floating Command Bar                │
+│  ┌──────────┐  ┌──────────┐  ┌────────────────────┐ │
+│  │  Strip   │  │ Preview  │  │    Dashboard       │ │
+│  │ (28px)   │→ │ (80px)   │→ │ Sessions + Usage   │ │
+│  └──────────┘  └──────────┘  └────────────────────┘ │
+└──────────────────────┬──────────────────────────────┘
+                       │
+         ┌─────────────┼─────────────┐
+         ▼             ▼             ▼
+┌─────────────┐ ┌────────────┐ ┌──────────────┐
+│ Socket      │ │ Log        │ │ Usage API    │
+│ Server      │ │ Watcher    │ │ (OAuth)      │
+│ (real-time) │ │ (fallback) │ │ (polling)    │
+└──────┬──────┘ └─────┬──────┘ └──────┬───────┘
+       │              │               │
+       ▼              ▼               ▼
+  Claude Code    ~/.claude/      api.anthropic.com
+  Hook Script    projects/*.jsonl
 ```
 
-### Data Flow
+### Agent Detection
 
-1. **OAuthResolver** reads your token from Keychain (handles `CLAUDE_CONFIG_DIR` hash suffix)
-2. **UsageAPI** fetches current utilization from Anthropic's OAuth usage endpoint
-3. **UsageCache** prevents API spam with a 60-second TTL
-4. **HistoryStore** records snapshots to SQLite for trend analysis
-5. **BurnRatePredictor** runs linear regression on recent snapshots
-6. **BudgetAlerts** fires native macOS notifications at threshold crossings
-7. **PaceCoach** generates contextual recommendations
+**Primary: Unix Socket** — The hook script sends JSON events to `~/Library/Application Support/ClaudePulse/pulse.sock`. This enables bidirectional communication including permission approval relay.
+
+**Fallback: Log Watching** — Monitors `~/.claude/projects/` for JSONL file changes. Infers session status from message patterns. Read-only (no permission relay).
+
+### Usage Monitoring
+
+1. **OAuthResolver** reads your token from Keychain
+2. **UsageAPI** fetches utilization from Anthropic's OAuth endpoint
+3. **UsageCache** deduplicates with 60s TTL
+4. **HistoryStore** records snapshots to SQLite for trends
+5. **BurnRatePredictor** runs linear regression on recent data
+6. **PaceCoach** generates tips factoring in active agent count
 
 ### What Gets Tracked
 
@@ -127,70 +176,89 @@ macOS Keychain ("Claude Code-credentials")
 
 ## Configuration
 
-Click the gear icon in the dashboard popover to access settings:
+Click the gear icon in the dashboard to access settings:
 
 - **Poll Interval** — how often to check usage (30s to 5min, default 60s)
 - **Alert Thresholds** — toggle notifications at 50%, 75%, 90%, 95%
+- **Sound Effects** — enable/disable with volume control
 - **Accent Color** — green, blue, purple, orange, or teal
+- **Keyboard Shortcut** — Cmd+Shift+P to toggle (shown in settings)
 
-Settings are stored in `UserDefaults` and persist across launches.
+Settings persist in `UserDefaults` across launches.
 
 ## Project Structure
 
 ```
 claude-pulse/
-├── ClaudePulse/                  # Menubar app (SwiftUI)
-│   ├── App.swift                 # @main entry with MenuBarExtra
-│   ├── AppState.swift            # ObservableObject driving the UI
-│   ├── MenuBarView.swift         # Dashboard popover
-│   ├── ProgressBarView.swift     # Glossy progress bars
-│   ├── SparklineView.swift       # 24h trend mini-graph
-│   ├── CountdownView.swift       # Live reset countdown clock
-│   ├── HistoryView.swift         # 7-day chart (Swift Charts)
-│   └── SettingsView.swift        # Preferences panel
+├── Sources/
+│   ├── ClaudePulse/                    # App target (SwiftUI + AppKit)
+│   │   ├── ClaudePulseApp.swift        # @main entry, AppDelegate
+│   │   ├── AppState.swift              # Usage monitoring state
+│   │   ├── CommandBarWindow.swift      # NSPanel + controller
+│   │   ├── CommandBarRootView.swift    # State switching
+│   │   ├── CommandBarStripView.swift   # Collapsed strip
+│   │   ├── CommandBarPreviewView.swift # Medium expansion
+│   │   ├── CommandBarDashboardView.swift # Full dashboard
+│   │   ├── ScreenLayout.swift          # Display positioning
+│   │   ├── ProgressBarView.swift       # Glossy progress bars
+│   │   ├── SparklineView.swift         # 24h trend mini-graph
+│   │   ├── CountdownView.swift         # Live reset countdown
+│   │   ├── HistoryView.swift           # 7-day chart
+│   │   ├── SettingsView.swift          # Preferences panel
+│   │   ├── SoundManager.swift          # Programmatic audio
+│   │   └── UpdateManager.swift         # Sparkle auto-updates
+│   │
+│   ├── ClaudePulseCore/                # Shared library
+│   │   ├── AgentSession.swift          # Session model + enums
+│   │   ├── SessionManager.swift        # Session state management
+│   │   ├── SessionProtocol.swift       # Socket wire protocol
+│   │   ├── SocketServer.swift          # Unix domain socket server
+│   │   ├── LogWatcher.swift            # JSONL log file monitor
+│   │   ├── TerminalJumper.swift        # Terminal window activation
+│   │   ├── SecurityPolicy.swift        # Input validation
+│   │   ├── UsageAPI.swift              # HTTP client + models
+│   │   ├── OAuthResolver.swift         # Keychain token resolution
+│   │   ├── UsageCache.swift            # 60s TTL cache (actor)
+│   │   ├── HistoryStore.swift          # SQLite storage (WAL)
+│   │   ├── BurnRatePredictor.swift     # Linear regression
+│   │   ├── BudgetAlerts.swift          # macOS notifications
+│   │   └── PaceCoach.swift             # Smart recommendations
+│   │
+│   └── ClaudePulseCLI/                 # CLI target
+│       └── main.swift
 │
-├── Shared/                       # Core library
-│   ├── UsageModels.swift         # Codable API response types
-│   ├── OAuthResolver.swift       # Keychain token resolution
-│   ├── UsageAPI.swift            # API client
-│   ├── UsageCache.swift          # 60s TTL cache (actor)
-│   ├── HistoryStore.swift        # SQLite storage (WAL mode, thread-safe)
-│   ├── BurnRatePredictor.swift   # Linear regression predictions
-│   ├── BudgetAlerts.swift        # macOS notifications (actor)
-│   ├── PaceCoach.swift           # Smart recommendations
-│   ├── ColorTheme.swift          # Theme definitions
-│   └── Constants.swift           # App-wide constants
-│
-├── ClaudePulseWidget/            # WidgetKit extension (planned)
 ├── Scripts/
-│   ├── com.claudepulse.agent.plist  # LaunchAgent for auto-start
-│   └── install.sh                   # LaunchAgent installer
-├── Homebrew/
-│   └── claude-pulse.rb           # Cask formula
-├── Sources/                      # Swift Package Manager targets
-│   ├── ClaudePulse/              # App target
-│   ├── ClaudePulseCore/          # Library target
-│   └── ClaudePulseCLI/           # CLI target
-└── Package.swift
+│   ├── claude-hook.sh                  # Claude Code hook script
+│   ├── install-hooks.sh                # Hook auto-configurator
+│   ├── generate-icns.sh                # Icon generator from PNG
+│   ├── install.sh                      # LaunchAgent installer
+│   └── com.claudepulse.agent.plist     # LaunchAgent config
+│
+├── SECURITY.md                         # Threat model & mitigations
+├── Package.swift                       # SPM with Sparkle dependency
+└── README.md
 ```
 
 ## Auto-Start at Login
-
-To have Claude Pulse start automatically when you log in:
 
 ```bash
 ./Scripts/install.sh
 ```
 
-This installs a LaunchAgent that keeps the app running in the background.
+Installs a LaunchAgent that keeps Claude Pulse running in the background.
 
 ## Security
 
-- **No API keys stored in code** — tokens are read from macOS Keychain at runtime
-- **No credentials logged** — token values are never printed or written to disk
-- **Thread-safe storage** — SQLite uses WAL mode with locking for concurrent access
-- **Actor isolation** — cache and alert state are protected by Swift actors
-- **Token expiry checks** — expired tokens trigger automatic re-resolution from Keychain
+Claude Pulse handles OAuth tokens and inter-process communication. See [SECURITY.md](SECURITY.md) for the full threat model.
+
+**Key measures:**
+- **No API keys in code** — tokens read from macOS Keychain at runtime, never logged
+- **Socket hardened** — `0600` permissions, peer UID validation via `getpeereid()`
+- **Input validated** — strict JSON schema, 64KB max message size, shell metacharacter rejection
+- **AppleScript sanitized** — TTY paths validated before interpolation
+- **Auto-updates signed** — Sparkle Ed25519 signature verification
+- **Zero runtime dependencies** — all Apple frameworks (Sparkle is the only addition)
+- **Hardened Runtime** — required for notarization
 
 ### Data Storage
 
@@ -198,20 +266,21 @@ This installs a LaunchAgent that keeps the app running in the background.
 |------|-------|
 | OAuth token | macOS Keychain (read-only, managed by Claude Code) |
 | Usage history | `~/Library/Application Support/ClaudePulse/history.sqlite3` |
+| Socket | `~/Library/Application Support/ClaudePulse/pulse.sock` |
 | Preferences | `UserDefaults` (`com.claudepulse.app.plist`) |
 
-History is automatically pruned to 30 days.
+Session data is ephemeral (in-memory only). Usage history auto-prunes to 30 days.
 
 ## Contributing
 
-Contributions are welcome! Some areas that could use help:
+Contributions welcome! Some areas that could use help:
 
-- [ ] **WidgetKit extension** — Notification Center widget reading from App Group JSON
-- [ ] **Sparkle integration** — auto-update framework
+- [ ] **WidgetKit extension** — Notification Center widget
+- [ ] **More agent hooks** — Codex, Gemini CLI, Cursor hook scripts
 - [ ] **Notarized DMG** — CI/CD pipeline for signed releases
-- [ ] **Menu bar icon options** — ring indicator, numeric, or SF Symbol variants
+- [ ] **Configurable hotkey** — let users pick their own shortcut
 - [ ] **Export** — CSV export of usage history
-- [ ] **Cross-session aggregation** — read from `~/.claude/usage-data/`
+- [ ] **tmux/screen support** — jump to specific tmux panes
 
 ## License
 
