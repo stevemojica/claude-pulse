@@ -21,6 +21,7 @@ final class AppState: ObservableObject {
     private let coach = PaceCoach()
     private var timer: Timer?
     private var pruneCounter = 0
+    private var consecutiveFailures = 0
 
     var fiveHourPct: Double { usage?.fiveHour?.utilization ?? 0 }
     var sevenDayPct: Double { usage?.sevenDay?.utilization ?? 0 }
@@ -68,6 +69,7 @@ final class AppState: ObservableObject {
             usage = fresh
             lastUpdated = Date()
             self.error = nil
+            consecutiveFailures = 0
 
             try store.record(fresh)
             snapshots = try store.recentSnapshots(limit: 60)
@@ -93,7 +95,12 @@ final class AppState: ObservableObject {
             crossedAlerts = await alerts.crossedThresholds(usage: fresh)
             coachTips = coach.advice(usage: fresh, predictions: preds)
         } catch {
+            consecutiveFailures += 1
             self.error = friendlyError(error)
+            // Back off on repeated failures — restart timer with longer interval
+            if consecutiveFailures >= 3 {
+                restartTimer(withBackoff: true)
+            }
         }
     }
 
@@ -105,9 +112,21 @@ final class AppState: ObservableObject {
     // MARK: - Private
 
     private func startTimer() {
+        restartTimer(withBackoff: false)
+    }
+
+    private func restartTimer(withBackoff: Bool) {
         timer?.invalidate()
-        let interval = UserDefaults.standard.double(forKey: "pollInterval")
-        let pollSeconds = interval >= 30 ? interval : 60
+        let baseInterval = UserDefaults.standard.double(forKey: "pollInterval")
+        let basePoll = baseInterval >= 30 ? baseInterval : 60
+        let pollSeconds: TimeInterval
+        if withBackoff {
+            // Exponential backoff: 2min, 4min, 5min cap
+            let backoff = min(basePoll * pow(2, Double(consecutiveFailures - 2)), 300)
+            pollSeconds = max(backoff, 120)
+        } else {
+            pollSeconds = basePoll
+        }
         timer = Timer.scheduledTimer(withTimeInterval: pollSeconds, repeats: true) { [weak self] _ in
             guard let self else { return }
             Task { @MainActor in await self.refresh() }
@@ -132,7 +151,7 @@ final class AppState: ObservableObject {
             return "Keychain access denied. Run Claude Pulse from an app bundle with proper entitlements."
         }
         if msg.contains("429") {
-            return "Rate limited — usage data will refresh shortly."
+            return "Rate limited — backing off, will retry in a few minutes."
         }
         if msg.contains("401") || msg.contains("expired") {
             return "Session expired. Re-authenticate in Claude Code, then restart Claude Pulse."
