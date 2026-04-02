@@ -184,7 +184,7 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(16)
-        .frame(width: 300, height: 520)
+        .frame(width: 300, height: 600)
     }
 
     private func colorFor(_ name: String) -> Color {
