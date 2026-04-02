@@ -76,6 +76,8 @@ public final class LogWatcher: @unchecked Sendable {
                 lock.unlock()
             }
         } else {
+            lock.unlock()
+
             // Check if the file is actually active by looking at the last log entry timestamp.
             // If not recently active, just record the offset to avoid re-processing.
             let recentlyActive = isFileRecentlyActive(path: path, currentSize: fileSize)
