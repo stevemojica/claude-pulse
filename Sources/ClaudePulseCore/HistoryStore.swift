@@ -66,7 +66,8 @@ public final class HistoryStore: @unchecked Sendable {
     }
 
     deinit {
-        sqlite3_close(db)
+        // sqlite3_close_v2 is more forgiving with uncommitted transactions
+        sqlite3_close_v2(db)
     }
 
     public func record(_ usage: UsageResponse) throws {

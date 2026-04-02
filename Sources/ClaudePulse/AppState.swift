@@ -22,6 +22,7 @@ final class AppState: ObservableObject {
     private var timer: Timer?
     private var pruneCounter = 0
     private var consecutiveFailures = 0
+    private var isRefreshing = false
 
     var fiveHourPct: Double { usage?.fiveHour?.utilization ?? 0 }
     var sevenDayPct: Double { usage?.sevenDay?.utilization ?? 0 }
@@ -48,8 +49,10 @@ final class AppState: ObservableObject {
 
     func refresh() async {
         guard let cache, let store else { return }
+        guard !isRefreshing else { return }
+        isRefreshing = true
         isLoading = true
-        defer { isLoading = false }
+        defer { isLoading = false; isRefreshing = false }
 
         do {
             let fresh: UsageResponse

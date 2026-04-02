@@ -164,7 +164,8 @@ enum HookInstaller {
         if changed {
             settings["hooks"] = hooks
             let data = try JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys])
-            try data.write(to: settingsPath)
+            // Atomic write to prevent corruption if Claude Code writes simultaneously
+            try data.write(to: settingsPath, options: .atomic)
             print("[ClaudePulse] Hooks registered in \(settingsPath.path)")
         }
     }

@@ -27,6 +27,15 @@ public final class SessionManager: ObservableObject {
     // MARK: - Session Lifecycle
 
     public func addSession(_ session: AgentSession) {
+        // Dedup: skip if a session with the same conversationPath already exists
+        if let path = session.conversationPath,
+           activeSessions.contains(where: { $0.conversationPath == path }) {
+            return
+        }
+        // Also skip if same ID already tracked
+        if activeSessions.contains(where: { $0.id == session.id }) {
+            return
+        }
         activeSessions.append(session)
         postNotification(.sessionAdded, session: session)
     }
