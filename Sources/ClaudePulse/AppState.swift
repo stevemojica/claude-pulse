@@ -59,8 +59,9 @@ final class AppState: ObservableObject {
                 // Token may have expired — try re-resolving
                 if "\(error)".contains("401") || "\(error)".contains("expired") {
                     let newToken = try OAuthResolver.resolveToken()
-                    self.cache = UsageCache(token: newToken)
-                    fresh = try await self.cache!.get()
+                    let newCache = UsageCache(token: newToken)
+                    self.cache = newCache
+                    fresh = try await newCache.get()
                 } else {
                     throw error
                 }

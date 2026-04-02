@@ -38,12 +38,9 @@ final class SoundManager {
 
         // Use the output node's format to avoid sample rate mismatches
         let outputFormat = audioEngine.outputNode.outputFormat(forBus: 0)
-        let mixerFormat = AVAudioFormat(
-            standardFormatWithSampleRate: outputFormat.sampleRate,
-            channels: 1
-        )
+        let sampleRate = outputFormat.sampleRate > 0 ? outputFormat.sampleRate : 44100.0
 
-        guard let format = mixerFormat else {
+        guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1) else {
             print("[ClaudePulse] Sound: Could not create audio format")
             return
         }
@@ -104,13 +101,16 @@ final class SoundManager {
             engineReady = false
             setupEngine()
             if !engineReady { playSystemSound(); return }
-            guard let engine = self.engine, let playerNode = self.playerNode, engine.isRunning else { return }
-            playEngineToneInternal(playerNode: playerNode, frequency: frequency, duration: duration, volume: volume, sampleRate: engine.outputNode.outputFormat(forBus: 0).sampleRate)
+            guard let engine = self.engine, let playerNode = self.playerNode, engine.isRunning else {
+                playSystemSound(); return
+            }
+            let sr = engine.outputNode.outputFormat(forBus: 0).sampleRate
+            playEngineToneInternal(playerNode: playerNode, frequency: frequency, duration: duration, volume: volume, sampleRate: sr > 0 ? sr : 44100)
             return
         }
 
-        let sampleRate = engine.outputNode.outputFormat(forBus: 0).sampleRate
-        playEngineToneInternal(playerNode: playerNode, frequency: frequency, duration: duration, volume: volume, sampleRate: sampleRate)
+        let sr = engine.outputNode.outputFormat(forBus: 0).sampleRate
+        playEngineToneInternal(playerNode: playerNode, frequency: frequency, duration: duration, volume: volume, sampleRate: sr > 0 ? sr : 44100)
     }
 
     private func playEngineToneInternal(playerNode: AVAudioPlayerNode, frequency: Double, duration: Double, volume: Float, sampleRate: Double) {

@@ -72,10 +72,7 @@ enum HookInstaller {
             Bundle.main.executableURL?.deletingLastPathComponent().appendingPathComponent(bridgeName),
             // Inside app bundle Resources
             Bundle.main.resourceURL?.appendingPathComponent(bridgeName),
-            // SPM .build/release
-            URL(fileURLWithPath: ProcessInfo.processInfo.arguments[0])
-                .deletingLastPathComponent().appendingPathComponent(bridgeName),
-            // SPM .build/debug
+            // SPM build directory (via argv[0])
             URL(fileURLWithPath: ProcessInfo.processInfo.arguments[0])
                 .deletingLastPathComponent().appendingPathComponent(bridgeName),
         ].compactMap { $0 }

@@ -182,6 +182,7 @@ let connectResult = withUnsafePointer(to: &addr) {
 }
 guard connectResult == 0 else { exit(0) }
 
-_ = jsonData.withUnsafeBytes { ptr in
+let written = jsonData.withUnsafeBytes { ptr in
     write(fd, ptr.baseAddress!, ptr.count)
 }
+if written < 0 { exit(1) }
