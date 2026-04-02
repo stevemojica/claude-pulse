@@ -151,7 +151,7 @@ public final class LogWatcher: @unchecked Sendable {
            let stopReason = message["stop_reason"] as? String,
            stopReason == "end_turn" {
             Task { @MainActor [weak self] in
-                self?.sessionManager.updateStatus(id: sessionId, status: .idle)
+                self?.sessionManager.updateStatus(id: sessionId, status: .completed)
             }
         }
     }
