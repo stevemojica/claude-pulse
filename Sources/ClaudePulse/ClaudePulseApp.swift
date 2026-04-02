@@ -28,8 +28,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var pruneTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Hide dock icon but remain visible in Force Quit (Cmd+Opt+Esc)
-        NSApp.setActivationPolicy(.prohibited)
+        // Hide dock icon — this is a background utility with a status bar item
+        NSApp.setActivationPolicy(.accessory)
 
         // Auto-configure Claude Code hooks on first launch (and update on every launch)
         HookInstaller.installIfNeeded()

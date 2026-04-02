@@ -21,12 +21,17 @@ enum HookInstaller {
     ]
 
     /// Install hooks if not already configured. Safe to call on every launch.
+    /// Never crashes — all errors are caught and logged.
     static func installIfNeeded() {
         do {
             let hookPath = try writeHookScript()
-            try registerInSettings(hookPath: hookPath)
+            do {
+                try registerInSettings(hookPath: hookPath)
+            } catch {
+                print("[ClaudePulse] Hook registration failed (settings.json may be read-only): \(error)")
+            }
         } catch {
-            print("[ClaudePulse] Hook installation failed: \(error)")
+            print("[ClaudePulse] Hook script write failed: \(error)")
         }
     }
 
@@ -106,88 +111,91 @@ enum HookInstaller {
 
     // MARK: - Embedded Hook Script
 
+    // swiftlint:disable line_length
     /// The hook script content — embedded so we don't need to find the Scripts/ directory.
+    /// NOTE: No leading whitespace — the shebang line MUST start at column 0.
     private static let hookScript = """
-    #!/bin/bash
-    # Claude Pulse Hook for Claude Code
-    # Auto-installed by Claude Pulse on first launch.
-    # Receives hook events via stdin JSON and forwards them to the socket.
+#!/bin/bash
+# Claude Pulse Hook for Claude Code
+# Auto-installed by Claude Pulse on first launch.
+# Receives hook events via stdin JSON and forwards them to the socket.
 
-    SOCKET_PATH="${HOME}/Library/Application Support/ClaudePulse/pulse.sock"
+SOCKET_PATH="${HOME}/Library/Application Support/ClaudePulse/pulse.sock"
 
-    # Only proceed if the socket exists
-    [ -S "$SOCKET_PATH" ] || exit 0
+# Only proceed if the socket exists
+[ -S "$SOCKET_PATH" ] || exit 0
 
-    # Read the full JSON event from stdin
-    INPUT=$(cat)
+# Read the full JSON event from stdin
+INPUT=$(cat)
 
-    # Extract common fields
-    SESSION_ID=$(echo "$INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('session_id',''))" 2>/dev/null)
-    EVENT_NAME=$(echo "$INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('hook_event_name',''))" 2>/dev/null)
-    CWD=$(echo "$INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('cwd',''))" 2>/dev/null)
-    TOOL_NAME=$(echo "$INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('tool_name',''))" 2>/dev/null)
+# Extract common fields
+SESSION_ID=$(echo "$INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('session_id',''))" 2>/dev/null)
+EVENT_NAME=$(echo "$INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('hook_event_name',''))" 2>/dev/null)
+CWD=$(echo "$INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('cwd',''))" 2>/dev/null)
+TOOL_NAME=$(echo "$INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('tool_name',''))" 2>/dev/null)
 
-    [ -z "$SESSION_ID" ] && exit 0
+[ -z "$SESSION_ID" ] && exit 0
 
-    send_message() {
-        echo "$1" | /usr/bin/nc -U "$SOCKET_PATH" 2>/dev/null || true
-    }
+send_message() {
+    echo "$1" | /usr/bin/nc -U "$SOCKET_PATH" 2>/dev/null || true
+}
 
-    json_escape() {
-        printf '%s' "$1" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read())[1:-1], end="")' 2>/dev/null
-    }
+json_escape() {
+    printf '%s' "$1" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read())[1:-1], end="")' 2>/dev/null
+}
 
-    ESCAPED_CWD=$(json_escape "$CWD")
-    ESCAPED_TOOL=$(json_escape "$TOOL_NAME")
+ESCAPED_CWD=$(json_escape "$CWD")
+ESCAPED_TOOL=$(json_escape "$TOOL_NAME")
 
-    case "$EVENT_NAME" in
-        SessionStart)
-            TTY_PATH=$(json_escape "$(tty 2>/dev/null || echo '')")
-            send_message "{\\"type\\":\\"session_start\\",\\"session_id\\":\\"$SESSION_ID\\",\\"agent\\":\\"claude_code\\",\\"data\\":{\\"pid\\":$PPID,\\"tty\\":\\"$TTY_PATH\\",\\"working_directory\\":\\"$ESCAPED_CWD\\"}}"
-            ;;
-        PermissionRequest)
-            TOOL_DESC=$(echo "$INPUT" | python3 -c "
-    import json,sys
-    d=json.load(sys.stdin)
-    ti = d.get('tool_input',{})
-    if 'command' in ti: print(ti['command'][:200])
-    elif 'file_path' in ti: print(ti['file_path'])
-    elif 'url' in ti: print(ti['url'])
-    else: print(json.dumps(ti)[:200])
-    " 2>/dev/null)
-            ESCAPED_DESC=$(json_escape "$TOOL_DESC")
-            send_message "{\\"type\\":\\"permission_request\\",\\"session_id\\":\\"$SESSION_ID\\",\\"agent\\":\\"claude_code\\",\\"data\\":{\\"tool_name\\":\\"$ESCAPED_TOOL\\",\\"tool_description\\":\\"Permission requested\\",\\"arguments\\":\\"$ESCAPED_DESC\\"}}"
-            ;;
-        Notification)
-            NOTIF_TYPE=$(echo "$INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('notification_type',''))" 2>/dev/null)
-            case "$NOTIF_TYPE" in
-                permission_prompt)
-                    send_message "{\\"type\\":\\"permission_request\\",\\"session_id\\":\\"$SESSION_ID\\",\\"agent\\":\\"claude_code\\",\\"data\\":{\\"tool_name\\":\\"permission\\",\\"tool_description\\":\\"Agent needs your approval\\",\\"arguments\\":\\"\\"}}"
-                    ;;
-                idle_prompt)
-                    send_message "{\\"type\\":\\"question\\",\\"session_id\\":\\"$SESSION_ID\\",\\"agent\\":\\"claude_code\\",\\"data\\":{\\"question_text\\":\\"Agent is waiting for your input\\"}}"
-                    ;;
-            esac
-            ;;
-        PreToolUse)
-            send_message "{\\"type\\":\\"status_update\\",\\"session_id\\":\\"$SESSION_ID\\",\\"agent\\":\\"claude_code\\",\\"data\\":{\\"status\\":\\"working\\",\\"task\\":\\"$ESCAPED_TOOL\\"}}"
-            ;;
-        PostToolUse)
-            send_message "{\\"type\\":\\"status_update\\",\\"session_id\\":\\"$SESSION_ID\\",\\"agent\\":\\"claude_code\\",\\"data\\":{\\"status\\":\\"working\\",\\"task\\":\\"$ESCAPED_TOOL done\\"}}"
-            ;;
-        Stop)
-            send_message "{\\"type\\":\\"completed\\",\\"session_id\\":\\"$SESSION_ID\\",\\"agent\\":\\"claude_code\\",\\"data\\":{\\"task\\":\\"Session completed\\"}}"
-            ;;
-        StopFailure)
-            send_message "{\\"type\\":\\"error\\",\\"session_id\\":\\"$SESSION_ID\\",\\"agent\\":\\"claude_code\\",\\"data\\":{\\"error_message\\":\\"Session ended with error\\"}}"
-            ;;
-        SubagentStart)
-            AGENT_TYPE=$(echo "$INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('agent_type','subagent'))" 2>/dev/null)
-            ESCAPED_AGENT=$(json_escape "$AGENT_TYPE")
-            send_message "{\\"type\\":\\"status_update\\",\\"session_id\\":\\"$SESSION_ID\\",\\"agent\\":\\"claude_code\\",\\"data\\":{\\"status\\":\\"working\\",\\"task\\":\\"Subagent: $ESCAPED_AGENT\\"}}"
-            ;;
-    esac
+case "$EVENT_NAME" in
+    SessionStart)
+        TTY_PATH=$(json_escape "$(tty 2>/dev/null || echo '')")
+        send_message "{\\"type\\":\\"session_start\\",\\"session_id\\":\\"$SESSION_ID\\",\\"agent\\":\\"claude_code\\",\\"data\\":{\\"pid\\":$PPID,\\"tty\\":\\"$TTY_PATH\\",\\"working_directory\\":\\"$ESCAPED_CWD\\"}}"
+        ;;
+    PermissionRequest)
+        TOOL_DESC=$(echo "$INPUT" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+ti = d.get('tool_input',{})
+if 'command' in ti: print(ti['command'][:200])
+elif 'file_path' in ti: print(ti['file_path'])
+elif 'url' in ti: print(ti['url'])
+else: print(json.dumps(ti)[:200])
+" 2>/dev/null)
+        ESCAPED_DESC=$(json_escape "$TOOL_DESC")
+        send_message "{\\"type\\":\\"permission_request\\",\\"session_id\\":\\"$SESSION_ID\\",\\"agent\\":\\"claude_code\\",\\"data\\":{\\"tool_name\\":\\"$ESCAPED_TOOL\\",\\"tool_description\\":\\"Permission requested\\",\\"arguments\\":\\"$ESCAPED_DESC\\"}}"
+        ;;
+    Notification)
+        NOTIF_TYPE=$(echo "$INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('notification_type',''))" 2>/dev/null)
+        case "$NOTIF_TYPE" in
+            permission_prompt)
+                send_message "{\\"type\\":\\"permission_request\\",\\"session_id\\":\\"$SESSION_ID\\",\\"agent\\":\\"claude_code\\",\\"data\\":{\\"tool_name\\":\\"permission\\",\\"tool_description\\":\\"Agent needs your approval\\",\\"arguments\\":\\"\\"}}"
+                ;;
+            idle_prompt)
+                send_message "{\\"type\\":\\"question\\",\\"session_id\\":\\"$SESSION_ID\\",\\"agent\\":\\"claude_code\\",\\"data\\":{\\"question_text\\":\\"Agent is waiting for your input\\"}}"
+                ;;
+        esac
+        ;;
+    PreToolUse)
+        send_message "{\\"type\\":\\"status_update\\",\\"session_id\\":\\"$SESSION_ID\\",\\"agent\\":\\"claude_code\\",\\"data\\":{\\"status\\":\\"working\\",\\"task\\":\\"$ESCAPED_TOOL\\"}}"
+        ;;
+    PostToolUse)
+        send_message "{\\"type\\":\\"status_update\\",\\"session_id\\":\\"$SESSION_ID\\",\\"agent\\":\\"claude_code\\",\\"data\\":{\\"status\\":\\"working\\",\\"task\\":\\"$ESCAPED_TOOL done\\"}}"
+        ;;
+    Stop)
+        send_message "{\\"type\\":\\"completed\\",\\"session_id\\":\\"$SESSION_ID\\",\\"agent\\":\\"claude_code\\",\\"data\\":{\\"task\\":\\"Session completed\\"}}"
+        ;;
+    StopFailure)
+        send_message "{\\"type\\":\\"error\\",\\"session_id\\":\\"$SESSION_ID\\",\\"agent\\":\\"claude_code\\",\\"data\\":{\\"error_message\\":\\"Session ended with error\\"}}"
+        ;;
+    SubagentStart)
+        AGENT_TYPE=$(echo "$INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('agent_type','subagent'))" 2>/dev/null)
+        ESCAPED_AGENT=$(json_escape "$AGENT_TYPE")
+        send_message "{\\"type\\":\\"status_update\\",\\"session_id\\":\\"$SESSION_ID\\",\\"agent\\":\\"claude_code\\",\\"data\\":{\\"status\\":\\"working\\",\\"task\\":\\"Subagent: $ESCAPED_AGENT\\"}}"
+        ;;
+esac
 
-    exit 0
-    """
+exit 0
+"""
+    // swiftlint:enable line_length
 }
