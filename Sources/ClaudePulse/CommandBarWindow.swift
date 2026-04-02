@@ -38,6 +38,7 @@ final class CommandBarController: ObservableObject {
     @Published var barState: CommandBarState = .strip
     private let layout: ScreenLayout
     private var clickMonitor: Any?
+    private var sessionObserver: NSObjectProtocol?
     private var autoCollapseTask: Task<Void, Never>?
 
     init(appState: AppState, sessionManager: SessionManager, updateManager: UpdateManager) {
@@ -58,7 +59,7 @@ final class CommandBarController: ObservableObject {
         applyFrame(for: .strip, animated: false)
 
         // Listen for session events to auto-expand
-        NotificationCenter.default.addObserver(
+        sessionObserver = NotificationCenter.default.addObserver(
             forName: SessionManager.sessionEventNotification,
             object: nil, queue: .main
         ) { [weak self] notification in
@@ -161,6 +162,9 @@ final class CommandBarController: ObservableObject {
     deinit {
         if let monitor = clickMonitor {
             NSEvent.removeMonitor(monitor)
+        }
+        if let observer = sessionObserver {
+            NotificationCenter.default.removeObserver(observer)
         }
     }
 }

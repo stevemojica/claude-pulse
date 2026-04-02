@@ -17,7 +17,7 @@ public struct BurnRatePredictor {
         }
         guard values.count >= 2 else { return nil }
         let recent = Array(values.suffix(10))
-        let currentPct = recent.last!.1
+        guard let currentPct = recent.last?.1 else { return nil }
         var velocities: [Double] = []
         for i in 1..<recent.count {
             let dt = recent[i].0.timeIntervalSince(recent[i - 1].0)

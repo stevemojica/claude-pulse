@@ -7,11 +7,10 @@ struct ScreenLayout {
     let hasNotch: Bool
 
     init(screen: NSScreen? = NSScreen.main) {
-        let screen = screen ?? NSScreen.screens.first!
-        self.screenFrame = screen.frame
-        self.visibleFrame = screen.visibleFrame
-        // On notch MacBooks, the visible frame top is lower than the screen frame top
-        self.hasNotch = (screen.frame.maxY - screen.visibleFrame.maxY) > 24
+        let resolved = screen ?? NSScreen.screens.first ?? NSScreen.main
+        self.screenFrame = resolved?.frame ?? NSRect(x: 0, y: 0, width: 1920, height: 1080)
+        self.visibleFrame = resolved?.visibleFrame ?? self.screenFrame
+        self.hasNotch = (screenFrame.maxY - visibleFrame.maxY) > 24
     }
 
     /// Frame for the collapsed strip state.
