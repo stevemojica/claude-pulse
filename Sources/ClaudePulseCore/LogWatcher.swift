@@ -78,47 +78,35 @@ public final class LogWatcher: @unchecked Sendable {
         } else {
             lock.unlock()
 
-            // Check if the file is actually active by looking at the last log entry timestamp.
-            // If not recently active, just record the offset to avoid re-processing.
-            let recentlyActive = isFileRecentlyActive(path: path, currentSize: fileSize)
-
             let sessionId = UUID()
             let projectName = extractProjectName(from: path)
             let workDir = extractWorkingDir(from: path)
 
             lock.lock()
-            if recentlyActive {
-                watchedFiles[path] = FileState(lastOffset: max(fileSize, 1024) - 1024, sessionId: sessionId)
-            } else {
-                watchedFiles[path] = FileState(lastOffset: fileSize, sessionId: sessionId)
-            }
+            watchedFiles[path] = FileState(lastOffset: max(fileSize, 1024) - 1024, sessionId: sessionId)
             lock.unlock()
 
-            // Only create a session if the file is actively being written to,
-            // and only if no session already exists for this path.
-            if recentlyActive {
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    // Dedup: skip if already tracked (e.g. via socket server)
-                    guard self.sessionManager.session(forPath: path) == nil else { return }
-                    let session = AgentSession(
-                        id: sessionId,
-                        agentType: .claudeCode,
-                        status: .working,
-                        currentTask: projectName,
-                        conversationPath: path,
-                        workingDirectory: workDir,
-                        isPassive: true
-                    )
-                    self.sessionManager.addSession(session)
-                }
-
-                readNewContent(path: path, from: max(fileSize, 1024) - 1024, sessionId: sessionId)
-
-                lock.lock()
-                watchedFiles[path]?.lastOffset = fileSize
-                lock.unlock()
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                // Dedup: skip if already tracked (e.g. via socket server)
+                guard self.sessionManager.session(forPath: path) == nil else { return }
+                let session = AgentSession(
+                    id: sessionId,
+                    agentType: .claudeCode,
+                    status: .working,
+                    currentTask: projectName,
+                    conversationPath: path,
+                    workingDirectory: workDir,
+                    isPassive: true
+                )
+                self.sessionManager.addSession(session)
             }
+
+            readNewContent(path: path, from: max(fileSize, 1024) - 1024, sessionId: sessionId)
+
+            lock.lock()
+            watchedFiles[path]?.lastOffset = fileSize
+            lock.unlock()
         }
     }
 
@@ -170,35 +158,6 @@ public final class LogWatcher: @unchecked Sendable {
                 self?.sessionManager.updateStatus(id: sessionId, status: .completed)
             }
         }
-    }
-
-    /// Check if a file has recent log activity (last entry within 30 seconds).
-    private func isFileRecentlyActive(path: String, currentSize: UInt64) -> Bool {
-        guard let handle = FileHandle(forReadingAtPath: path) else { return false }
-        defer { try? handle.close() }
-        let readOffset = currentSize > 4096 ? currentSize - 4096 : 0
-        handle.seek(toFileOffset: readOffset)
-        guard let data = try? handle.availableData,
-              let text = String(data: data, encoding: .utf8) else { return false }
-
-        // Check the last non-empty line for a timestamp
-        let lines = text.components(separatedBy: "\n").filter { !$0.isEmpty }
-        guard let lastLine = lines.last,
-              let lineData = lastLine.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
-              let timestamp = json["timestamp"] as? String ?? json["ts"] as? String else { return false }
-
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = formatter.date(from: timestamp) {
-            return Date().timeIntervalSince(date) < 30
-        }
-        // Try without fractional seconds
-        formatter.formatOptions = [.withInternetDateTime]
-        if let date = formatter.date(from: timestamp) {
-            return Date().timeIntervalSince(date) < 30
-        }
-        return false
     }
 
     private func extractProjectName(from path: String) -> String {
