@@ -36,13 +36,16 @@ final class CommandBarPanel: NSPanel {
 final class CommandBarController: ObservableObject {
     let panel: CommandBarPanel
     @Published var barState: CommandBarState = .strip
-    private let layout: ScreenLayout
+    private var layout: ScreenLayout
     private var clickMonitor: Any?
     private var sessionObserver: NSObjectProtocol?
     private var autoCollapseTask: Task<Void, Never>?
+    private var positionObserver: NSObjectProtocol?
 
     init(appState: AppState, sessionManager: SessionManager, updateManager: UpdateManager) {
-        self.layout = ScreenLayout()
+        let posName = UserDefaults.standard.string(forKey: "barPosition") ?? "bottom"
+        let pos = BarPosition(rawValue: posName) ?? .bottom
+        self.layout = ScreenLayout(position: pos)
         self.panel = CommandBarPanel()
 
         let rootView = CommandBarRootView(
@@ -69,6 +72,16 @@ final class CommandBarController: ObservableObject {
                 Task { @MainActor in
                     self?.expandToPreview()
                 }
+            }
+        }
+
+        // Listen for position preference changes
+        positionObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.reloadPosition()
             }
         }
     }
@@ -98,6 +111,15 @@ final class CommandBarController: ObservableObject {
 
     func collapse() {
         transition(to: .strip)
+    }
+
+    func reloadPosition() {
+        let posName = UserDefaults.standard.string(forKey: "barPosition") ?? "bottom"
+        let pos = BarPosition(rawValue: posName) ?? .bottom
+        if layout.position != pos {
+            layout = ScreenLayout(position: pos)
+            applyFrame(for: barState, animated: true)
+        }
     }
 
     func transition(to newState: CommandBarState) {
@@ -164,6 +186,9 @@ final class CommandBarController: ObservableObject {
             NSEvent.removeMonitor(monitor)
         }
         if let observer = sessionObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = positionObserver {
             NotificationCenter.default.removeObserver(observer)
         }
     }
