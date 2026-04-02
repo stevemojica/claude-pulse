@@ -24,5 +24,9 @@ let package = Package(
             dependencies: ["ClaudePulseCore"],
             path: "Sources/ClaudePulseCLI"
         ),
+        .executableTarget(
+            name: "ClaudePulseBridge",
+            path: "Sources/ClaudePulseBridge"
+        ),
     ]
 )
