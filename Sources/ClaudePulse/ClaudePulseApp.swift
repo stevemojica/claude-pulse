@@ -31,6 +31,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Hide dock icon — this is a background utility with a status bar item
         NSApp.setActivationPolicy(.accessory)
 
+        // Prevent macOS from auto-terminating us when no standard windows are open
+        // (our UI is a borderless panel + status bar item, not a regular window)
+        ProcessInfo.processInfo.disableAutomaticTermination("Claude Pulse is a background utility")
+
         // Auto-configure Claude Code hooks on first launch (and update on every launch)
         HookInstaller.installIfNeeded()
 
