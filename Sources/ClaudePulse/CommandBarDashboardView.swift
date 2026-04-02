@@ -290,7 +290,7 @@ struct CommandBarDashboardView: View {
             if let e = usage.extraUsage, e.isEnabled {
                 let used = e.usedCredits.map { String(format: "$%.2f", $0 / 100) } ?? "?"
                 let limit = e.monthlyLimit.map { String(format: "$%.0f", $0 / 100) } ?? "?"
-                ProgressBarView(label: "Extra Credits", percentage: e.utilization, color: .orange, subtitle: "\(used) / \(limit)")
+                ProgressBarView(label: "Extra Credits", percentage: e.utilization ?? 0, color: .orange, subtitle: "\(used) / \(limit)")
             }
         }
     }

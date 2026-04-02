@@ -32,7 +32,7 @@ public struct ExtraUsage: Decodable, Sendable {
     public let isEnabled: Bool
     public let monthlyLimit: Double?
     public let usedCredits: Double?
-    public let utilization: Double
+    public let utilization: Double?
 
     enum CodingKeys: String, CodingKey {
         case isEnabled = "is_enabled"

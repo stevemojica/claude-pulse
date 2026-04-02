@@ -32,7 +32,7 @@ public actor BudgetAlerts {
         if let s = usage.sevenDaySonnet { fire(pct: s.utilization, window: "Sonnet (7d)", resetTime: s.resetsAt) }
         if let o = usage.sevenDayOpus { fire(pct: o.utilization, window: "Opus (7d)", resetTime: o.resetsAt) }
         if let e = usage.extraUsage, e.isEnabled {
-            fireExtra(pct: e.utilization, used: e.usedCredits, limit: e.monthlyLimit)
+            fireExtra(pct: e.utilization ?? 0, used: e.usedCredits, limit: e.monthlyLimit)
         }
     }
 

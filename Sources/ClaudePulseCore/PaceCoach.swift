@@ -44,10 +44,11 @@ public struct PaceCoach {
             let used = (extra.usedCredits ?? 0) / 100  // API returns cents
             let limit = (extra.monthlyLimit ?? 0) / 100
             let remaining = limit - used
-            if extra.utilization > 95 {
+            let extraPct = extra.utilization ?? 0
+            if extraPct > 95 {
                 tips.append("Extra credits nearly used up — \(formatDollars(remaining)) remaining of \(formatDollars(limit)) this month.")
-            } else if extra.utilization > 90 {
-                tips.append("Extra credits at \(Int(extra.utilization))% — \(formatDollars(remaining)) remaining this month.")
+            } else if extraPct > 90 {
+                tips.append("Extra credits at \(Int(extraPct))% — \(formatDollars(remaining)) remaining this month.")
             }
             // Below 90%: no tip needed, the progress bar speaks for itself
         }

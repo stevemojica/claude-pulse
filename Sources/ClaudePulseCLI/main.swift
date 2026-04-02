@@ -20,7 +20,7 @@ func printUsage(_ usage: UsageResponse) {
     if let e = usage.extraUsage {
         let limit = e.monthlyLimit.map { String(format: "$%.0f", $0 / 100) } ?? "—"
         let used = e.usedCredits.map { String(format: "$%.2f", $0 / 100) } ?? "—"
-        print("  Extra usage:    \(String(format: "%.1f", e.utilization))%  (\(used) / \(limit), enabled: \(e.isEnabled))")
+        print("  Extra usage:    \(String(format: "%.1f", e.utilization ?? 0))%  (\(used) / \(limit), enabled: \(e.isEnabled))")
     }
 }
 
