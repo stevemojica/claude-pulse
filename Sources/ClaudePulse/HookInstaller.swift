@@ -1,10 +1,10 @@
 import Foundation
 
 /// Automatically configures Claude Code hooks on first launch.
-/// Writes the hook script to Application Support and registers it in ~/.claude/settings.json.
+/// Copies the bridge binary to Application Support and registers it in ~/.claude/settings.json.
 enum HookInstaller {
 
-    private static let hookFileName = "claude-hook.sh"
+    private static let bridgeName = "ClaudePulseBridge"
     private static let appSupportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("ClaudePulse", isDirectory: true)
 
@@ -24,34 +24,81 @@ enum HookInstaller {
     /// Never crashes — all errors are caught and logged.
     static func installIfNeeded() {
         do {
-            let hookPath = try writeHookScript()
+            let bridgePath = try installBridge()
             do {
-                try registerInSettings(hookPath: hookPath)
+                try registerInSettings(bridgePath: bridgePath)
             } catch {
-                print("[ClaudePulse] Hook registration failed (settings.json may be read-only): \(error)")
+                print("[ClaudePulse] Hook registration failed: \(error)")
             }
         } catch {
-            print("[ClaudePulse] Hook script write failed: \(error)")
+            print("[ClaudePulse] Bridge installation failed: \(error)")
         }
     }
 
-    /// Write the hook script to ~/Library/Application Support/ClaudePulse/claude-hook.sh
-    private static func writeHookScript() throws -> String {
+    /// Copy the ClaudePulseBridge binary to Application Support.
+    /// The bridge is built alongside the main app by SPM.
+    private static func installBridge() throws -> String {
         try FileManager.default.createDirectory(at: appSupportDir, withIntermediateDirectories: true)
-        let hookURL = appSupportDir.appendingPathComponent(hookFileName)
-        let hookPath = hookURL.path
+        let destURL = appSupportDir.appendingPathComponent(bridgeName)
+        let destPath = destURL.path
 
-        // Always overwrite to keep the hook script up to date
-        try hookScript.write(toFile: hookPath, atomically: true, encoding: .utf8)
+        // Find the bridge binary — check multiple locations
+        let bridgeURL = findBridgeBinary()
 
-        // Make executable (0755)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hookPath)
+        if let sourceURL = bridgeURL {
+            // Copy/overwrite the bridge binary
+            if FileManager.default.fileExists(atPath: destPath) {
+                try FileManager.default.removeItem(atPath: destPath)
+            }
+            try FileManager.default.copyItem(at: sourceURL, to: destURL)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: destPath)
+            print("[ClaudePulse] Bridge binary installed at \(destPath)")
+        } else if FileManager.default.fileExists(atPath: destPath) {
+            // Bridge already installed from a previous launch — use it
+            print("[ClaudePulse] Using existing bridge binary")
+        } else {
+            // No bridge found — fall back to writing the shell script
+            print("[ClaudePulse] Bridge binary not found — falling back to shell script")
+            return try installShellFallback()
+        }
 
-        return hookPath
+        return destPath
+    }
+
+    /// Find the bridge binary in common locations.
+    private static func findBridgeBinary() -> URL? {
+        let candidates: [URL] = [
+            // Same directory as the main executable (app bundle or .build/)
+            Bundle.main.executableURL?.deletingLastPathComponent().appendingPathComponent(bridgeName),
+            // Inside app bundle Resources
+            Bundle.main.resourceURL?.appendingPathComponent(bridgeName),
+            // SPM .build/release
+            URL(fileURLWithPath: ProcessInfo.processInfo.arguments[0])
+                .deletingLastPathComponent().appendingPathComponent(bridgeName),
+            // SPM .build/debug
+            URL(fileURLWithPath: ProcessInfo.processInfo.arguments[0])
+                .deletingLastPathComponent().appendingPathComponent(bridgeName),
+        ].compactMap { $0 }
+
+        for candidate in candidates {
+            if FileManager.default.isExecutableFile(atPath: candidate.path) {
+                return candidate
+            }
+        }
+        return nil
+    }
+
+    /// Fallback: write a shell script if the bridge binary isn't available.
+    private static func installShellFallback() throws -> String {
+        let scriptURL = appSupportDir.appendingPathComponent("claude-hook.sh")
+        let scriptPath = scriptURL.path
+        try shellScript.write(toFile: scriptPath, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptPath)
+        return scriptPath
     }
 
     /// Register hook entries in ~/.claude/settings.json for each event.
-    private static func registerInSettings(hookPath: String) throws {
+    private static func registerInSettings(bridgePath: String) throws {
         let claudeDir = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude")
         let settingsPath = claudeDir.appendingPathComponent("settings.json")
@@ -73,22 +120,40 @@ enum HookInstaller {
         for event in hookEvents {
             var eventHooks = hooks[event] as? [[String: Any]] ?? []
 
-            // Check if our hook is already registered
+            // Check if our hook is already registered (check for both bridge and shell script)
             let alreadyRegistered = eventHooks.contains { entry in
                 guard let hookList = entry["hooks"] as? [[String: Any]] else { return false }
                 return hookList.contains { h in
                     guard let cmd = h["command"] as? String else { return false }
-                    return cmd.contains("ClaudePulse") && cmd.contains("claude-hook.sh")
+                    return cmd.contains("ClaudePulse")
                 }
             }
 
-            if !alreadyRegistered {
+            if alreadyRegistered {
+                // Update existing entry to point to the new bridge path
+                eventHooks = eventHooks.map { entry in
+                    var entry = entry
+                    if var hookList = entry["hooks"] as? [[String: Any]] {
+                        hookList = hookList.map { h in
+                            var h = h
+                            if let cmd = h["command"] as? String, cmd.contains("ClaudePulse") {
+                                h["command"] = bridgePath
+                                changed = true
+                            }
+                            return h
+                        }
+                        entry["hooks"] = hookList
+                    }
+                    return entry
+                }
+                hooks[event] = eventHooks
+            } else {
                 let entry: [String: Any] = [
                     "matcher": "",
                     "hooks": [
                         [
                             "type": "command",
-                            "command": hookPath,
+                            "command": bridgePath,
                             "timeout": 5
                         ] as [String: Any]
                     ]
@@ -104,98 +169,29 @@ enum HookInstaller {
             let data = try JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys])
             try data.write(to: settingsPath)
             print("[ClaudePulse] Hooks registered in \(settingsPath.path)")
-        } else {
-            print("[ClaudePulse] Hooks already configured")
         }
     }
 
-    // MARK: - Embedded Hook Script
+    // MARK: - Shell Script Fallback
 
-    // swiftlint:disable line_length
-    /// The hook script content — embedded so we don't need to find the Scripts/ directory.
-    /// NOTE: No leading whitespace — the shebang line MUST start at column 0.
-    private static let hookScript = """
+    private static let shellScript = """
 #!/bin/bash
-# Claude Pulse Hook for Claude Code
-# Auto-installed by Claude Pulse on first launch.
-# Receives hook events via stdin JSON and forwards them to the socket.
-
 SOCKET_PATH="${HOME}/Library/Application Support/ClaudePulse/pulse.sock"
-
-# Only proceed if the socket exists
 [ -S "$SOCKET_PATH" ] || exit 0
-
-# Read the full JSON event from stdin
 INPUT=$(cat)
-
-# Extract common fields
 SESSION_ID=$(echo "$INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('session_id',''))" 2>/dev/null)
 EVENT_NAME=$(echo "$INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('hook_event_name',''))" 2>/dev/null)
-CWD=$(echo "$INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('cwd',''))" 2>/dev/null)
-TOOL_NAME=$(echo "$INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('tool_name',''))" 2>/dev/null)
-
 [ -z "$SESSION_ID" ] && exit 0
-
-send_message() {
-    echo "$1" | /usr/bin/nc -U "$SOCKET_PATH" 2>/dev/null || true
-}
-
-json_escape() {
-    printf '%s' "$1" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read())[1:-1], end="")' 2>/dev/null
-}
-
-ESCAPED_CWD=$(json_escape "$CWD")
-ESCAPED_TOOL=$(json_escape "$TOOL_NAME")
-
+TOOL_NAME=$(echo "$INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('tool_name',''))" 2>/dev/null)
+CWD=$(echo "$INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('cwd',''))" 2>/dev/null)
+send() { echo "$1" | /usr/bin/nc -U "$SOCKET_PATH" 2>/dev/null || true; }
 case "$EVENT_NAME" in
-    SessionStart)
-        TTY_PATH=$(json_escape "$(tty 2>/dev/null || echo '')")
-        send_message "{\\"type\\":\\"session_start\\",\\"session_id\\":\\"$SESSION_ID\\",\\"agent\\":\\"claude_code\\",\\"data\\":{\\"pid\\":$PPID,\\"tty\\":\\"$TTY_PATH\\",\\"working_directory\\":\\"$ESCAPED_CWD\\"}}"
-        ;;
-    PermissionRequest)
-        TOOL_DESC=$(echo "$INPUT" | python3 -c "
-import json,sys
-d=json.load(sys.stdin)
-ti = d.get('tool_input',{})
-if 'command' in ti: print(ti['command'][:200])
-elif 'file_path' in ti: print(ti['file_path'])
-elif 'url' in ti: print(ti['url'])
-else: print(json.dumps(ti)[:200])
-" 2>/dev/null)
-        ESCAPED_DESC=$(json_escape "$TOOL_DESC")
-        send_message "{\\"type\\":\\"permission_request\\",\\"session_id\\":\\"$SESSION_ID\\",\\"agent\\":\\"claude_code\\",\\"data\\":{\\"tool_name\\":\\"$ESCAPED_TOOL\\",\\"tool_description\\":\\"Permission requested\\",\\"arguments\\":\\"$ESCAPED_DESC\\"}}"
-        ;;
-    Notification)
-        NOTIF_TYPE=$(echo "$INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('notification_type',''))" 2>/dev/null)
-        case "$NOTIF_TYPE" in
-            permission_prompt)
-                send_message "{\\"type\\":\\"permission_request\\",\\"session_id\\":\\"$SESSION_ID\\",\\"agent\\":\\"claude_code\\",\\"data\\":{\\"tool_name\\":\\"permission\\",\\"tool_description\\":\\"Agent needs your approval\\",\\"arguments\\":\\"\\"}}"
-                ;;
-            idle_prompt)
-                send_message "{\\"type\\":\\"question\\",\\"session_id\\":\\"$SESSION_ID\\",\\"agent\\":\\"claude_code\\",\\"data\\":{\\"question_text\\":\\"Agent is waiting for your input\\"}}"
-                ;;
-        esac
-        ;;
-    PreToolUse)
-        send_message "{\\"type\\":\\"status_update\\",\\"session_id\\":\\"$SESSION_ID\\",\\"agent\\":\\"claude_code\\",\\"data\\":{\\"status\\":\\"working\\",\\"task\\":\\"$ESCAPED_TOOL\\"}}"
-        ;;
-    PostToolUse)
-        send_message "{\\"type\\":\\"status_update\\",\\"session_id\\":\\"$SESSION_ID\\",\\"agent\\":\\"claude_code\\",\\"data\\":{\\"status\\":\\"working\\",\\"task\\":\\"$ESCAPED_TOOL done\\"}}"
-        ;;
-    Stop)
-        send_message "{\\"type\\":\\"completed\\",\\"session_id\\":\\"$SESSION_ID\\",\\"agent\\":\\"claude_code\\",\\"data\\":{\\"task\\":\\"Session completed\\"}}"
-        ;;
-    StopFailure)
-        send_message "{\\"type\\":\\"error\\",\\"session_id\\":\\"$SESSION_ID\\",\\"agent\\":\\"claude_code\\",\\"data\\":{\\"error_message\\":\\"Session ended with error\\"}}"
-        ;;
-    SubagentStart)
-        AGENT_TYPE=$(echo "$INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('agent_type','subagent'))" 2>/dev/null)
-        ESCAPED_AGENT=$(json_escape "$AGENT_TYPE")
-        send_message "{\\"type\\":\\"status_update\\",\\"session_id\\":\\"$SESSION_ID\\",\\"agent\\":\\"claude_code\\",\\"data\\":{\\"status\\":\\"working\\",\\"task\\":\\"Subagent: $ESCAPED_AGENT\\"}}"
-        ;;
+    SessionStart) send "{\\"type\\":\\"session_start\\",\\"session_id\\":\\"$SESSION_ID\\",\\"agent\\":\\"claude_code\\",\\"data\\":{\\"working_directory\\":\\"$CWD\\"}}" ;;
+    PermissionRequest) send "{\\"type\\":\\"permission_request\\",\\"session_id\\":\\"$SESSION_ID\\",\\"agent\\":\\"claude_code\\",\\"data\\":{\\"tool_name\\":\\"$TOOL_NAME\\",\\"tool_description\\":\\"Permission requested\\"}}" ;;
+    Notification) send "{\\"type\\":\\"question\\",\\"session_id\\":\\"$SESSION_ID\\",\\"agent\\":\\"claude_code\\",\\"data\\":{\\"question_text\\":\\"Agent needs attention\\"}}" ;;
+    PreToolUse) send "{\\"type\\":\\"status_update\\",\\"session_id\\":\\"$SESSION_ID\\",\\"agent\\":\\"claude_code\\",\\"data\\":{\\"status\\":\\"working\\",\\"task\\":\\"$TOOL_NAME\\"}}" ;;
+    Stop) send "{\\"type\\":\\"completed\\",\\"session_id\\":\\"$SESSION_ID\\",\\"agent\\":\\"claude_code\\",\\"data\\":{\\"task\\":\\"done\\"}}" ;;
 esac
-
 exit 0
 """
-    // swiftlint:enable line_length
 }
