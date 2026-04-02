@@ -147,12 +147,16 @@ final class SoundManager {
         playerNode?.stop()
         engine?.stop()
         engine = nil
+        playerNode = nil
         engineReady = false
     }
 
     deinit {
+        // tearDown() should have been called already; this is a safety net
         if let observer = eventObserver {
             NotificationCenter.default.removeObserver(observer)
+            eventObserver = nil
         }
+        engine?.stop()
     }
 }

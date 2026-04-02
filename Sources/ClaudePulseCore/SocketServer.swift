@@ -13,6 +13,8 @@ public final class SocketServer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.claudepulse.socket", qos: .userInitiated)
     private let lock = NSLock()
     private weak var sessionManager: SessionManager?
+    private var stopped = false
+    private static let maxConnections = 20
 
     public init(sessionManager: SessionManager) throws {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -29,19 +31,23 @@ public final class SocketServer: @unchecked Sendable {
     }
 
     public func stop() {
+        lock.lock()
+        stopped = true
+        let fds = Array(connections.keys)
+        connections.removeAll()
+        // Capture and clear listenFd before cancelling source to prevent double-close
+        let savedListenFd = listenFd
+        listenFd = -1
+        lock.unlock()
+
+        // Cancel the source — its cancel handler is a no-op since we handle fd closure here
         listenSource?.cancel()
         listenSource = nil
 
-        lock.lock()
-        let fds = Array(connections.keys)
-        connections.removeAll()
-        lock.unlock()
-
         for fd in fds { close(fd) }
 
-        if listenFd >= 0 {
-            close(listenFd)
-            listenFd = -1
+        if savedListenFd >= 0 {
+            close(savedListenFd)
         }
         unlink(socketPath)
     }
@@ -101,9 +107,8 @@ public final class SocketServer: @unchecked Sendable {
         listenSource?.setEventHandler { [weak self] in
             self?.acceptConnection()
         }
-        let fd = listenFd
         listenSource?.setCancelHandler {
-            if fd >= 0 { close(fd) }
+            // fd is closed by stop() — do not double-close
         }
         listenSource?.resume()
 
@@ -130,6 +135,16 @@ public final class SocketServer: @unchecked Sendable {
             return
         }
         #endif
+
+        // Enforce connection limit to prevent fd exhaustion
+        lock.lock()
+        let currentCount = connections.count
+        lock.unlock()
+        guard currentCount < Self.maxConnections else {
+            print("[ClaudePulse] Connection limit reached (\(Self.maxConnections)), rejecting")
+            close(clientFd)
+            return
+        }
 
         let conn = ClientConnection(fd: clientFd, server: self)
         lock.lock()
@@ -245,6 +260,8 @@ private final class ClientConnection {
     weak var server: SocketServer?
     private var readSource: DispatchSourceRead?
     private var buffer = Data()
+    private var invalidMessageCount = 0
+    private static let maxInvalidMessages = 5
 
     init(fd: Int32, server: SocketServer) {
         self.fd = fd
@@ -273,6 +290,15 @@ private final class ClientConnection {
             server?.clientDisconnected(fd: fd)
             return
         }
+
+        // Check buffer size before appending to prevent memory spikes
+        if buffer.count + n > ProtocolValidator.maxMessageSize {
+            print("[ClaudePulse] Buffer overflow from fd \(fd), dropping connection")
+            buffer.removeAll()
+            readSource?.cancel()
+            server?.clientDisconnected(fd: fd)
+            return
+        }
         buffer.append(contentsOf: buf[0..<n])
 
         // Process complete newline-delimited messages
@@ -283,15 +309,19 @@ private final class ClientConnection {
             guard !lineData.isEmpty else { continue }
             do {
                 let message = try ProtocolValidator.decode(Data(lineData))
+                invalidMessageCount = 0
                 server?.handleMessage(message, from: fd)
             } catch {
+                invalidMessageCount += 1
                 print("[ClaudePulse] Invalid message: \(error)")
+                if invalidMessageCount >= Self.maxInvalidMessages {
+                    print("[ClaudePulse] Too many invalid messages from fd \(fd), dropping")
+                    buffer.removeAll()
+                    readSource?.cancel()
+                    server?.clientDisconnected(fd: fd)
+                    return
+                }
             }
-        }
-
-        // Prevent buffer overflow
-        if buffer.count > ProtocolValidator.maxMessageSize {
-            buffer.removeAll()
         }
     }
 }

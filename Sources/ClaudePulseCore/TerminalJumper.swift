@@ -50,12 +50,13 @@ public enum TerminalJumper {
         return app.activate()
     }
 
-    /// Sanitize a string for safe AppleScript embedding — only allow /dev/tty* paths.
+    /// Sanitize a string for safe AppleScript embedding — only allow /dev/tty* and /dev/pts/* paths.
     private static func sanitizeTTY(_ tty: String) -> String? {
-        // Only allow paths that look like valid TTY paths
-        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "/._-"))
+        // Strict validation: must match /dev/tty* or /dev/pts/* patterns only
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "/"))
         guard tty.unicodeScalars.allSatisfy({ allowed.contains($0) }),
-              tty.hasPrefix("/dev/") else {
+              (tty.hasPrefix("/dev/tty") || tty.hasPrefix("/dev/pts/")),
+              !tty.contains("..") else {
             return nil
         }
         return tty
