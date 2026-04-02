@@ -10,6 +10,7 @@ struct SettingsView: View {
     @AppStorage("accentColorName") private var accentColorName = "green"
     @AppStorage("soundEnabled") private var soundEnabled = true
     @AppStorage("soundVolume") private var soundVolume: Double = 0.5
+    @AppStorage("barPosition") private var barPosition = "bottom"
     @Environment(\.dismiss) private var dismiss
 
     private let colorOptions = ["green", "blue", "purple", "orange", "teal"]
@@ -154,6 +155,25 @@ struct SettingsView: View {
                 Text("⌘⇧P — Toggle command bar")
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
+            }
+
+            Divider()
+
+            // Bar position
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Bar Position")
+                    .font(.system(size: 11, weight: .medium))
+                Picker("", selection: $barPosition) {
+                    Text("Top (Notch area)").tag("top")
+                    Text("Bottom").tag("bottom")
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                Text(barPosition == "top"
+                    ? "Bar appears below the notch or menu bar"
+                    : "Bar appears above the Dock")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.quaternary)
             }
 
             Spacer()
