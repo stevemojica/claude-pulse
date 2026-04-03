@@ -68,7 +68,10 @@ public final class SessionManager: ObservableObject {
     }
 
     public func setPermissionPrompt(id: UUID, prompt: PermissionPrompt) {
-        guard let idx = activeSessions.firstIndex(where: { $0.id == id }) else { return }
+        guard let idx = activeSessions.firstIndex(where: { $0.id == id }) else {
+            print("[ClaudePulse] Permission prompt dropped — session \(id) not found")
+            return
+        }
         activeSessions[idx].status = .awaitingPermission
         activeSessions[idx].permissionPrompt = prompt
         activeSessions[idx].lastActivityAt = Date()
@@ -76,7 +79,10 @@ public final class SessionManager: ObservableObject {
     }
 
     public func setQuestion(id: UUID, question: String) {
-        guard let idx = activeSessions.firstIndex(where: { $0.id == id }) else { return }
+        guard let idx = activeSessions.firstIndex(where: { $0.id == id }) else {
+            print("[ClaudePulse] Question dropped — session \(id) not found")
+            return
+        }
         activeSessions[idx].status = .awaitingAnswer
         activeSessions[idx].question = question
         activeSessions[idx].lastActivityAt = Date()
