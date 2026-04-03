@@ -66,16 +66,18 @@ public final class LogWatcher: @unchecked Sendable {
 
         lock.lock()
         let existingState = watchedFiles[path]
-        lock.unlock()
 
         if let state = existingState {
             if fileSize > state.lastOffset {
-                readNewContent(path: path, from: state.lastOffset, sessionId: state.sessionId)
-                lock.lock()
                 watchedFiles[path]?.lastOffset = fileSize
+                lock.unlock()
+                readNewContent(path: path, from: state.lastOffset, sessionId: state.sessionId)
+            } else {
                 lock.unlock()
             }
         } else {
+            lock.unlock()
+
             let sessionId = UUID()
             let projectName = extractProjectName(from: path)
             let workDir = extractWorkingDir(from: path)
@@ -86,6 +88,8 @@ public final class LogWatcher: @unchecked Sendable {
 
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                // Dedup: skip if already tracked (e.g. via socket server)
+                guard self.sessionManager.session(forPath: path) == nil else { return }
                 let session = AgentSession(
                     id: sessionId,
                     agentType: .claudeCode,
@@ -151,7 +155,7 @@ public final class LogWatcher: @unchecked Sendable {
            let stopReason = message["stop_reason"] as? String,
            stopReason == "end_turn" {
             Task { @MainActor [weak self] in
-                self?.sessionManager.updateStatus(id: sessionId, status: .idle)
+                self?.sessionManager.updateStatus(id: sessionId, status: .completed)
             }
         }
     }
@@ -165,10 +169,10 @@ public final class LogWatcher: @unchecked Sendable {
     }
 
     private func extractWorkingDir(from path: String) -> String? {
-        guard let handle = FileHandle(forReadingAtPath: path),
-              let data = try? handle.readData(ofLength: 4096),
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? handle.close() }
+        guard let data = try? handle.readData(ofLength: 4096),
               let text = String(data: data, encoding: .utf8) else { return nil }
-        try? handle.close()
 
         if let firstLine = text.components(separatedBy: "\n").first,
            let lineData = firstLine.data(using: .utf8),

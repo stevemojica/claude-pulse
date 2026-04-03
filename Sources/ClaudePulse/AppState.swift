@@ -22,6 +22,7 @@ final class AppState: ObservableObject {
     private var timer: Timer?
     private var pruneCounter = 0
     private var consecutiveFailures = 0
+    private var isRefreshing = false
 
     var fiveHourPct: Double { usage?.fiveHour?.utilization ?? 0 }
     var sevenDayPct: Double { usage?.sevenDay?.utilization ?? 0 }
@@ -48,8 +49,10 @@ final class AppState: ObservableObject {
 
     func refresh() async {
         guard let cache, let store else { return }
+        guard !isRefreshing else { return }
+        isRefreshing = true
         isLoading = true
-        defer { isLoading = false }
+        defer { isLoading = false; isRefreshing = false }
 
         do {
             let fresh: UsageResponse
@@ -97,7 +100,14 @@ final class AppState: ObservableObject {
             coachTips = coach.advice(usage: fresh, predictions: preds)
         } catch {
             consecutiveFailures += 1
-            self.error = friendlyError(error)
+            let msg = "\(error)"
+            // On rate limit, keep showing last known data — don't overwrite with error
+            if msg.contains("429") {
+                if usage == nil { self.error = friendlyError(error) }
+                // else: silently back off, keep displaying last data
+            } else {
+                self.error = friendlyError(error)
+            }
             // Back off on repeated failures — restart timer with longer interval
             if consecutiveFailures >= 3 {
                 restartTimer(withBackoff: true)
@@ -119,7 +129,7 @@ final class AppState: ObservableObject {
     private func restartTimer(withBackoff: Bool) {
         timer?.invalidate()
         let baseInterval = UserDefaults.standard.double(forKey: "pollInterval")
-        let basePoll = baseInterval >= 30 ? baseInterval : 60
+        let basePoll = baseInterval >= 30 ? baseInterval : 90
         let pollSeconds: TimeInterval
         if withBackoff {
             // Exponential backoff: 2min, 4min, 5min cap

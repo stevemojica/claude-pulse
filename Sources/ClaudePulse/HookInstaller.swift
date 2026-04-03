@@ -126,8 +126,12 @@ enum HookInstaller {
                 }
             }
 
+            // PermissionRequest needs 300s so the bridge can block while waiting
+            // for the user to click Allow/Deny in the UI. All others use 5s.
+            let hookTimeout: Int = (event == "PermissionRequest") ? 300 : 5
+
             if alreadyRegistered {
-                // Update existing entry to point to the new bridge path
+                // Update existing entry: bridge path + timeout
                 eventHooks = eventHooks.map { entry in
                     var entry = entry
                     if var hookList = entry["hooks"] as? [[String: Any]] {
@@ -135,6 +139,7 @@ enum HookInstaller {
                             var h = h
                             if let cmd = h["command"] as? String, cmd.contains("ClaudePulse") {
                                 h["command"] = bridgePath
+                                h["timeout"] = hookTimeout
                                 changed = true
                             }
                             return h
@@ -151,7 +156,7 @@ enum HookInstaller {
                         [
                             "type": "command",
                             "command": bridgePath,
-                            "timeout": 5
+                            "timeout": hookTimeout
                         ] as [String: Any]
                     ]
                 ]
@@ -164,7 +169,8 @@ enum HookInstaller {
         if changed {
             settings["hooks"] = hooks
             let data = try JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys])
-            try data.write(to: settingsPath)
+            // Atomic write to prevent corruption if Claude Code writes simultaneously
+            try data.write(to: settingsPath, options: .atomic)
             print("[ClaudePulse] Hooks registered in \(settingsPath.path)")
         }
     }

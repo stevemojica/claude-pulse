@@ -27,6 +27,15 @@ public final class SessionManager: ObservableObject {
     // MARK: - Session Lifecycle
 
     public func addSession(_ session: AgentSession) {
+        // Dedup: skip if a session with the same conversationPath already exists
+        if let path = session.conversationPath,
+           activeSessions.contains(where: { $0.conversationPath == path }) {
+            return
+        }
+        // Also skip if same ID already tracked
+        if activeSessions.contains(where: { $0.id == session.id }) {
+            return
+        }
         activeSessions.append(session)
         postNotification(.sessionAdded, session: session)
     }
@@ -59,7 +68,10 @@ public final class SessionManager: ObservableObject {
     }
 
     public func setPermissionPrompt(id: UUID, prompt: PermissionPrompt) {
-        guard let idx = activeSessions.firstIndex(where: { $0.id == id }) else { return }
+        guard let idx = activeSessions.firstIndex(where: { $0.id == id }) else {
+            print("[ClaudePulse] Permission prompt dropped — session \(id) not found")
+            return
+        }
         activeSessions[idx].status = .awaitingPermission
         activeSessions[idx].permissionPrompt = prompt
         activeSessions[idx].lastActivityAt = Date()
@@ -67,7 +79,10 @@ public final class SessionManager: ObservableObject {
     }
 
     public func setQuestion(id: UUID, question: String) {
-        guard let idx = activeSessions.firstIndex(where: { $0.id == id }) else { return }
+        guard let idx = activeSessions.firstIndex(where: { $0.id == id }) else {
+            print("[ClaudePulse] Question dropped — session \(id) not found")
+            return
+        }
         activeSessions[idx].status = .awaitingAnswer
         activeSessions[idx].question = question
         activeSessions[idx].lastActivityAt = Date()
