@@ -25,7 +25,7 @@ When you're vibe coding with 5-10 agent conversations open, your brain can't tra
 ### Agent Session Tracking
 - **Multi-agent support** — Claude Code, Codex, Gemini CLI, Cursor, OpenCode, Droid
 - **Real-time status** — see which agents are working, idle, completed, or errored
-- **Permission relay** — approve or deny agent tool calls directly from the command bar
+- **Permission relay** — approve or deny agent tool calls directly from the command bar (responses flow back to Claude Code via `hookSpecificOutput`)
 - **Terminal jump** — click a session card to activate the correct terminal window/tab
 - **Log file fallback** — detects Claude Code sessions even without hooks configured
 
@@ -73,6 +73,7 @@ swift build -c release
 # Create an app bundle
 mkdir -p ~/Applications/Claude\ Pulse.app/Contents/MacOS
 cp .build/release/ClaudePulse ~/Applications/Claude\ Pulse.app/Contents/MacOS/
+cp .build/release/ClaudePulseBridge ~/Applications/Claude\ Pulse.app/Contents/MacOS/
 
 # Create Info.plist (required for notifications + Sparkle updates)
 cat > ~/Applications/Claude\ Pulse.app/Contents/Info.plist << 'EOF'
@@ -90,15 +91,19 @@ cat > ~/Applications/Claude\ Pulse.app/Contents/Info.plist << 'EOF'
     <key>CFBundleExecutable</key>
     <string>ClaudePulse</string>
     <key>CFBundleVersion</key>
-    <string>2.0</string>
+    <string>2.1</string>
     <key>CFBundleShortVersionString</key>
-    <string>2.0</string>
+    <string>2.1.0</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>LSUIElement</key>
     <true/>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
+    <key>NSSupportsAutomaticTermination</key>
+    <false/>
+    <key>NSSupportsSuddenTermination</key>
+    <false/>
 </dict>
 </plist>
 EOF
@@ -119,13 +124,9 @@ Check [Releases](https://github.com/stevemojica/claude-pulse/releases) for pre-b
 
 ## Setting Up Agent Hooks
 
-For real-time session tracking with permission relay, install the Claude Code hook:
+Claude Pulse **auto-configures hooks on every launch** — no manual setup needed. It copies the bridge binary to `~/Library/Application Support/ClaudePulse/` and registers it in `~/.claude/settings.json`.
 
-```bash
-./Scripts/install-hooks.sh
-```
-
-This adds a hook to `~/.claude/settings.json` that sends events to the Claude Pulse socket. Without the hook, Claude Pulse still detects sessions by watching log files (passive mode — status only, no permission relay).
+Without hooks (e.g. before first launch), Claude Pulse still detects sessions by watching log files (passive mode — status only, no permission relay).
 
 ## How It Works
 
@@ -149,13 +150,13 @@ This adds a hook to `~/.claude/settings.json` that sends events to the Claude Pu
 └──────┬──────┘ └─────┬──────┘ └──────┬───────┘
        │              │               │
        ▼              ▼               ▼
-  Claude Code    ~/.claude/      api.anthropic.com
-  Hook Script    projects/*.jsonl
+  ClaudePulse    ~/.claude/      api.anthropic.com
+  Bridge         projects/*.jsonl
 ```
 
 ### Agent Detection
 
-**Primary: Unix Socket** — The hook script sends JSON events to `~/Library/Application Support/ClaudePulse/pulse.sock`. This enables bidirectional communication including permission approval relay.
+**Primary: Unix Socket + Bridge** — A compiled Swift bridge binary (`ClaudePulseBridge`) is invoked by Claude Code hooks. It sends JSON events to `~/Library/Application Support/ClaudePulse/pulse.sock`. For permission requests, the bridge blocks and waits for the user's Allow/Deny decision, then outputs `hookSpecificOutput` JSON so Claude Code receives the response natively. Auto-configured on first launch.
 
 **Fallback: Log Watching** — Monitors `~/.claude/projects/` for JSONL file changes. Infers session status from message patterns. Read-only (no permission relay).
 
@@ -182,7 +183,7 @@ This adds a hook to `~/.claude/settings.json` that sends events to the Claude Pu
 
 Click the gear icon in the dashboard to access settings:
 
-- **Poll Interval** — how often to check usage (30s to 5min, default 60s)
+- **Poll Interval** — how often to check usage (30s to 5min, default 90s)
 - **Alert Thresholds** — toggle notifications at 50%, 75%, 90%, 95%
 - **Sound Effects** — enable/disable with volume control
 - **Accent Color** — green, blue, purple, orange, or teal
@@ -228,6 +229,9 @@ claude-pulse/
 │   │   ├── BudgetAlerts.swift          # macOS notifications
 │   │   └── PaceCoach.swift             # Smart recommendations
 │   │
+│   ├── ClaudePulseBridge/               # Hook bridge binary
+│   │   └── main.swift                  # Blocks on PermissionRequest, fire-and-forget for others
+│   │
 │   └── ClaudePulseCLI/                 # CLI target
 │       └── main.swift
 │
@@ -271,6 +275,7 @@ Claude Pulse handles OAuth tokens and inter-process communication. See [SECURITY
 | OAuth token | macOS Keychain (read-only, managed by Claude Code) |
 | Usage history | `~/Library/Application Support/ClaudePulse/history.sqlite3` |
 | Socket | `~/Library/Application Support/ClaudePulse/pulse.sock` |
+| Bridge binary | `~/Library/Application Support/ClaudePulse/ClaudePulseBridge` |
 | Preferences | `UserDefaults` (`com.claudepulse.app.plist`) |
 
 Session data is ephemeral (in-memory only). Usage history auto-prunes to 30 days.
