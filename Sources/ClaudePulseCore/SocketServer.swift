@@ -237,10 +237,17 @@ public final class SocketServer: @unchecked Sendable {
 
     private func sendPermissionResponse(sessionId: String, allowed: Bool, to clientFd: Int32) {
         let response = SessionResponse(sessionId: sessionId, type: .permissionResponse, allowed: allowed)
-        guard let data = try? ProtocolValidator.encode(response) else { return }
+        guard let data = try? ProtocolValidator.encode(response) else {
+            print("[ClaudePulse] Failed to encode permission response")
+            return
+        }
+        print("[ClaudePulse] Sending permission response: allowed=\(allowed) to fd \(clientFd)")
         queue.async {
-            _ = data.withUnsafeBytes { ptr in
+            let written = data.withUnsafeBytes { ptr in
                 write(clientFd, ptr.baseAddress!, ptr.count)
+            }
+            if written <= 0 {
+                print("[ClaudePulse] Failed to write permission response to fd \(clientFd)")
             }
         }
     }

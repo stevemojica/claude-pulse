@@ -3,34 +3,97 @@ import Foundation
 import Darwin
 #endif
 
-/// Claude Pulse Bridge — lightweight binary that receives Claude Code hook
-/// events via stdin JSON and forwards them to the Claude Pulse Unix socket.
-///
-/// This is invoked by Claude Code's hooks system. It must be fast:
-/// - Read stdin
-/// - Parse JSON natively (no python3 dependency)
-/// - Connect to Unix socket
-/// - Send transformed message
-/// - Exit
+// MARK: - Socket Helpers
 
 let socketPath = FileManager.default.homeDirectoryForCurrentUser
     .appendingPathComponent("Library/Application Support/ClaudePulse/pulse.sock").path
 
-// Only proceed if the socket exists
+/// Connect to the Pulse Unix socket. Returns fd or -1.
+func connectToSocket() -> Int32 {
+    guard FileManager.default.fileExists(atPath: socketPath) else { return -1 }
+
+    let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+    guard fd >= 0 else { return -1 }
+
+    var addr = sockaddr_un()
+    addr.sun_family = sa_family_t(AF_UNIX)
+    let pathBytes = socketPath.utf8CString
+    withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
+        ptr.withMemoryRebound(to: CChar.self, capacity: pathBytes.count) { dest in
+            for (i, byte) in pathBytes.enumerated() { dest[i] = byte }
+        }
+    }
+
+    let addrLen = socklen_t(MemoryLayout.offset(of: \sockaddr_un.sun_path)! + pathBytes.count)
+    let result = withUnsafePointer(to: &addr) {
+        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+            connect(fd, $0, addrLen)
+        }
+    }
+    guard result == 0 else { close(fd); return -1 }
+    return fd
+}
+
+/// Send a JSON message (newline-delimited) over the socket.
+func sendMessage(_ msg: [String: Any], on fd: Int32) -> Bool {
+    guard var jsonData = try? JSONSerialization.data(withJSONObject: msg) else { return false }
+    jsonData.append(0x0A)
+    let written = jsonData.withUnsafeBytes { ptr in
+        write(fd, ptr.baseAddress!, ptr.count)
+    }
+    return written > 0
+}
+
+/// Block and read a newline-delimited JSON response from the socket.
+/// Times out after `timeoutSeconds`.
+func readResponse(from fd: Int32, timeoutSeconds: Int = 300) -> [String: Any]? {
+    var tv = timeval(tv_sec: timeoutSeconds, tv_usec: 0)
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+
+    var buffer = Data()
+    var buf = [UInt8](repeating: 0, count: 4096)
+
+    while true {
+        let n = read(fd, &buf, buf.count)
+        if n <= 0 { return nil }
+        buffer.append(contentsOf: buf[0..<n])
+
+        if let newlineIdx = buffer.firstIndex(of: 0x0A) {
+            let lineData = buffer[buffer.startIndex..<newlineIdx]
+            guard !lineData.isEmpty,
+                  let json = try? JSONSerialization.jsonObject(with: Data(lineData)) as? [String: Any]
+            else { return nil }
+            return json
+        }
+
+        if buffer.count > 65_536 { return nil }
+    }
+}
+
+/// Output hookSpecificOutput JSON to stdout for Claude Code to read.
+func outputHookResponse(_ json: [String: Any]) {
+    guard let data = try? JSONSerialization.data(withJSONObject: json) else { return }
+    FileHandle.standardOutput.write(data)
+    FileHandle.standardOutput.write("\n".data(using: .utf8)!)
+}
+
+// MARK: - Main
+
 guard FileManager.default.fileExists(atPath: socketPath) else { exit(0) }
 
-// Read all stdin
 let inputData = FileHandle.standardInput.readDataToEndOfFile()
 guard !inputData.isEmpty,
       let json = try? JSONSerialization.jsonObject(with: inputData) as? [String: Any] else { exit(0) }
 
-// Extract common fields
 guard let sessionId = json["session_id"] as? String, !sessionId.isEmpty else { exit(0) }
 let eventName = json["hook_event_name"] as? String ?? ""
 let cwd = json["cwd"] as? String ?? ""
 let toolName = json["tool_name"] as? String ?? ""
 
-// Build the Claude Pulse protocol message
+// Blocking events wait for UI response before exiting
+let isBlocking = (eventName == "PermissionRequest")
+
+// Build the protocol message
 var message: [String: Any]?
 
 switch eventName {
@@ -156,33 +219,32 @@ default:
     break
 }
 
-guard let msg = message,
-      var jsonData = try? JSONSerialization.data(withJSONObject: msg) else { exit(0) }
-jsonData.append(0x0A) // newline delimiter
+guard let msg = message else { exit(0) }
 
-// Send to Unix socket
-let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+// Connect to socket
+let fd = connectToSocket()
 guard fd >= 0 else { exit(0) }
 defer { close(fd) }
 
-var addr = sockaddr_un()
-addr.sun_family = sa_family_t(AF_UNIX)
-let pathBytes = socketPath.utf8CString
-withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
-    ptr.withMemoryRebound(to: CChar.self, capacity: pathBytes.count) { dest in
-        for (i, byte) in pathBytes.enumerated() { dest[i] = byte }
-    }
-}
+// Send the message
+guard sendMessage(msg, on: fd) else { exit(0) }
 
-let addrLen = socklen_t(MemoryLayout.offset(of: \sockaddr_un.sun_path)! + pathBytes.count)
-let connectResult = withUnsafePointer(to: &addr) {
-    $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-        connect(fd, $0, addrLen)
-    }
-}
-guard connectResult == 0 else { exit(0) }
+// For blocking events, wait for the UI response
+if isBlocking {
+    if let response = readResponse(from: fd, timeoutSeconds: 300) {
+        let allowed = response["allowed"] as? Bool ?? false
+        let behavior = allowed ? "allow" : "deny"
+        let reason = allowed ? "Approved via Claude Pulse" : "Denied via Claude Pulse"
 
-let written = jsonData.withUnsafeBytes { ptr in
-    write(fd, ptr.baseAddress!, ptr.count)
+        let hookOutput: [String: Any] = [
+            "hookSpecificOutput": [
+                "decision": [
+                    "behavior": behavior,
+                    "reason": reason
+                ] as [String: Any]
+            ] as [String: Any]
+        ]
+        outputHookResponse(hookOutput)
+    }
+    // If no response (timeout/error), exit silently — Claude Code falls back to terminal
 }
-if written < 0 { exit(1) }
